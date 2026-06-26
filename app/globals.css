@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+:root {
+  --void-ink: #050608;
+  --observatory-black: #0B0E13;
+  --deep-signal-blue: #101A26;
+  --instrument-graphite: #1A2028;
+  --ash-paper: #E7E0D3;
+  --faint-parchment: #CFC5B4;
+  --regulatory-copper: #C06A3D;
+  --seismic-amber: #FFB347;
+  --pressure-red: #E5484D;
+  --exposure-green: #59D18C;
+  --authority-blue: #4BA3C7;
+  --consensus-uv: #9A7CFF;
+  --signal-bone: #F4EFE5;
+  --muted-instrument: #747B84;
+
+  --bg: var(--void-ink);
+  --surface-0: var(--observatory-black);
+  --surface-1: var(--deep-signal-blue);
+  --surface-2: var(--instrument-graphite);
+  --text-primary: var(--signal-bone);
+  --text-secondary: var(--ash-paper);
+  --text-muted: var(--muted-instrument);
+  --border: rgba(244, 239, 229, 0.07);
+  --border-active: rgba(244, 239, 229, 0.16);
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text-primary);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-muted: var(--text-muted);
+  --color-copper: var(--regulatory-copper);
+  --color-amber: var(--seismic-amber);
+  --color-red: var(--pressure-red);
+  --color-green: var(--exposure-green);
+  --color-blue: var(--authority-blue);
+  --color-uv: var(--consensus-uv);
+  --color-bone: var(--signal-bone);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Observatory Surfaces ── */
+.obs-field {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+}
+
+.obs-aperture {
+  background: linear-gradient(160deg, var(--surface-1) 0%, var(--surface-0) 100%);
+  border: 1px solid var(--border);
+  position: relative;
+}
+.obs-aperture::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--regulatory-copper), transparent);
+  opacity: 0.3;
+}
+
+.obs-inset {
+  background: var(--void-ink);
+  border: 1px solid rgba(244,239,229,0.04);
+}
+
+.obs-trace {
+  background: var(--surface-0);
+  border-left: 2px solid var(--regulatory-copper);
+}
+
+/* ── Buttons ── */
+.btn-copper {
+  background: var(--regulatory-copper);
+  color: var(--void-ink);
+  font-weight: 700;
+  transition: all 0.15s;
+}
+.btn-copper:hover {
+  background: #D07A4D;
+  box-shadow: 0 0 20px rgba(192,106,61,0.2);
+}
+.btn-copper:disabled { opacity: 0.4; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+.btn-outline:hover {
+  color: var(--text-primary);
+  border-color: var(--border-active);
+}
+
+/* ── Indicators ── */
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--instrument-graphite); border-radius: 2px; }
+
+/* ── Animations ── */
+@keyframes signal-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.animate-signal { animation: signal-pulse 2s ease-in-out infinite; }
+
+@keyframes sweep {
+  0% { transform: scaleX(0); transform-origin: left; }
+  50% { transform: scaleX(1); transform-origin: left; }
+  51% { transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; }
+}
+.animate-sweep {
+  animation: sweep 3s ease-in-out infinite;
+  height: 1px;
+  background: var(--regulatory-copper);
+}
+
+@keyframes enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-enter { animation: enter 0.25s ease-out; }

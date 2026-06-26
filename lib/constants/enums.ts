@@ -1,0 +1,43 @@
+export const RELEVANCE = ["NOT_RELEVANT", "LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+export const MATERIALITY = ["NON_MATERIAL", "POTENTIALLY_MATERIAL", "MATERIAL", "HIGHLY_MATERIAL"] as const;
+export const URGENCY = ["WATCH_ONLY", "REVIEW_WITHIN_30_DAYS", "REVIEW_WITHIN_7_DAYS", "IMMEDIATE_REVIEW", "EMERGENCY_ACTION"] as const;
+export const DOCUMENT_TYPES = ["FINAL_RULE", "PROPOSED_RULE", "GUIDANCE", "ENFORCEMENT_ACTION", "COURT_DECISION", "CONSULTATION", "NOTICE", "RECALL", "SAFETY_ALERT", "STANDARD_UPDATE", "INFORMATIONAL", "UNKNOWN"] as const;
+export const RECOMMENDED_ACTIONS = ["NO_ACTION", "MONITOR", "LEGAL_REVIEW", "COMPLIANCE_REVIEW", "POLICY_UPDATE", "PRODUCT_REVIEW", "REPORTING_REVIEW", "CUSTOMER_NOTICE_REVIEW", "SECURITY_CONTROL_REVIEW", "EXECUTIVE_ESCALATION"] as const;
+export const ALERT_STATUSES = ["OPEN", "ACKNOWLEDGED", "IN_REVIEW", "ESCALATED", "RESOLVED", "DISMISSED", "REOPENED"] as const;
+export const SCAN_STATUSES = ["PENDING", "FETCHING", "CONSENSUS", "COMPLETED", "FAILED", "PARTIAL", "NO_UPDATES", "DUPLICATE_ONLY"] as const;
+export const TRIGGER_TYPES = ["DUE_SCAN", "MANUAL_SCAN", "RE_REVIEW_SCAN", "DEMO_SCAN"] as const;
+export const RE_REVIEW_REASONS = ["WRONG_RELEVANCE", "URGENCY_TOO_HIGH", "URGENCY_TOO_LOW", "MATERIALITY_TOO_HIGH", "MATERIALITY_TOO_LOW", "WRONG_DOCUMENT_TYPE", "WRONG_RESPONSIBLE_TEAM", "INSUFFICIENT_CONTEXT", "SOURCE_INTERPRETATION_ERROR"] as const;
+export const REPUTATION_BANDS = ["OBSERVER", "SCANNER", "SENTINEL", "ARCHIVIST", "WATCH CAPTAIN"] as const;
+
+export type Relevance = (typeof RELEVANCE)[number];
+export type Materiality = (typeof MATERIALITY)[number];
+export type Urgency = (typeof URGENCY)[number];
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+export type RecommendedAction = (typeof RECOMMENDED_ACTIONS)[number];
+export type AlertStatus = (typeof ALERT_STATUSES)[number];
+export type ScanStatus = (typeof SCAN_STATUSES)[number];
+export type TriggerType = (typeof TRIGGER_TYPES)[number];
+export type ReReviewReason = (typeof RE_REVIEW_REASONS)[number];
+
+export const URGENCY_COLORS: Record<string, string> = {
+  WATCH_ONLY: "#4BA3C7",
+  REVIEW_WITHIN_30_DAYS: "#FFB347",
+  REVIEW_WITHIN_7_DAYS: "#C06A3D",
+  IMMEDIATE_REVIEW: "#E5484D",
+  EMERGENCY_ACTION: "#E5484D",
+};
+
+export const MATERIALITY_COLORS: Record<string, string> = {
+  NON_MATERIAL: "#4BA3C7",
+  POTENTIALLY_MATERIAL: "#FFB347",
+  MATERIAL: "#C06A3D",
+  HIGHLY_MATERIAL: "#E5484D",
+};
+
+export const RELEVANCE_COLORS: Record<string, string> = {
+  NOT_RELEVANT: "#1A2028",
+  LOW: "#4BA3C7",
+  MEDIUM: "#FFB347",
+  HIGH: "#C06A3D",
+  CRITICAL: "#E5484D",
+};
