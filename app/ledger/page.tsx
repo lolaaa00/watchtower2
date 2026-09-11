@@ -16,9 +16,9 @@ export default function ChainLedgerPage() {
   }, [client]);
 
   return (
-    <div className="p-5 animate-enter">
-      <h1 className="text-2xl font-black mb-1" style={{ fontFamily: "var(--font-heading)" }}>Chain Ledger</h1>
-      <p className="text-[11px] mb-6" style={{ color: "var(--muted-instrument)" }}>
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
+      <h1 className="text-3xl font-black mb-2 tracking-tight" style={{ fontFamily: "var(--font-heading)" }}>Chain Ledger</h1>
+      <p className="text-[17px] mb-6" style={{ color: "var(--muted-instrument)" }}>
         On-chain audit trail. Every signal sweep has a chain stamp.
       </p>
 
@@ -26,7 +26,7 @@ export default function ChainLedgerPage() {
         <LedgerLine label="Network" value={`StudioNet (${env.chainId})`} />
         <LedgerLine label="RPC" value={env.rpcUrl} mono />
         {env.contractAddress && (
-          <div className="flex justify-between text-[11px]">
+          <div className="flex justify-between text-[17px]">
             <span style={{ color: "var(--muted-instrument)" }}>Contract</span>
             <a href={getExplorerAddressUrl(env.contractAddress)} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ fontFamily: "var(--font-data)", color: "var(--authority-blue)" }}>
               {env.contractAddress.slice(0, 10)}…{env.contractAddress.slice(-8)}
@@ -52,7 +52,7 @@ export default function ChainLedgerPage() {
 
 function LedgerLine({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex justify-between text-[11px]">
+    <div className="flex justify-between text-[17px]">
       <span style={{ color: "var(--muted-instrument)" }}>{label}</span>
       <span style={{ fontFamily: mono ? "var(--font-data)" : "var(--font-body)", color: "var(--faint-parchment)" }}>{value}</span>
     </div>

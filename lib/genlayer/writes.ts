@@ -1,6 +1,10 @@
 import type { WatchtowerClient } from "./client";
 import { getContractAddress } from "./client";
 
+// None of these pass a client-supplied timestamp anymore — the contract derives
+// now_ts itself from gl.message.raw.datetime, so a caller can't skew cooldown/
+// expiry gating by lying about the time. See contracts/watchtower.py: _now_ts().
+
 export async function registerSource(
   client: WatchtowerClient,
   params: {
@@ -42,14 +46,13 @@ export async function createWatchProfile(
     excluded_topics: string;
   }
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "create_watch_profile",
     args: [
       params.company_name, params.industry, params.jurisdictions,
       params.products, params.risk_areas, params.internal_teams,
-      params.keywords, params.excluded_topics, nowTs,
+      params.keywords, params.excluded_topics,
     ],
     value: BigInt(0),
   });
@@ -62,11 +65,63 @@ export async function runSourceScan(
   dateFrom: string,
   dateTo: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "run_source_scan",
-    args: [profileId, sourceId, nowTs, dateFrom, dateTo],
+    args: [profileId, sourceId, dateFrom, dateTo, false, "DUE_SCAN"],
+    value: BigInt(0),
+  });
+}
+
+// Must match KEEPER_BOND_WEI in contracts/watchtower.py exactly — the contract
+// rejects any other amount with WRONG_BOND_AMOUNT.
+export const KEEPER_BOND_WEI = BigInt("10000000000000000"); // 0.01 GEN
+
+export async function runSourceScanBonded(
+  client: WatchtowerClient,
+  profileId: string,
+  sourceId: string,
+  dateFrom: string,
+  dateTo: string
+) {
+  return client.writeContract({
+    address: getContractAddress(),
+    functionName: "run_source_scan_bonded",
+    args: [profileId, sourceId, dateFrom, dateTo],
+    value: KEEPER_BOND_WEI,
+  });
+}
+
+// Owner-only safety net: recovers GEN credited to the contract's balance with no
+// bond ledger entry (e.g. an UNDETERMINED bonded scan — see docs/DECISION_RECORD.md).
+// Never touches funds behind a currently-LOCKED bond.
+export async function recoverStrayBalance(client: WatchtowerClient, to: string) {
+  return client.writeContract({
+    address: getContractAddress(),
+    functionName: "recover_stray_balance",
+    args: [to],
+    value: BigInt(0),
+  });
+}
+
+export async function claimBond(client: WatchtowerClient, scanId: string) {
+  return client.writeContract({
+    address: getContractAddress(),
+    functionName: "claim_bond",
+    args: [scanId],
+    value: BigInt(0),
+  });
+}
+
+export async function challengeScan(
+  client: WatchtowerClient,
+  scanId: string,
+  evidenceScanId: string
+) {
+  return client.writeContract({
+    address: getContractAddress(),
+    functionName: "challenge_scan",
+    args: [scanId, evidenceScanId],
     value: BigInt(0),
   });
 }
@@ -79,11 +134,10 @@ export async function runManualScan(
   dateTo: string,
   reason: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "run_manual_scan",
-    args: [profileId, sourceId, nowTs, dateFrom, dateTo, reason],
+    args: [profileId, sourceId, dateFrom, dateTo, reason],
     value: BigInt(0),
   });
 }
@@ -94,11 +148,10 @@ export async function requestReReview(
   reasonCode: string,
   challengeNote: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "request_re_review",
-    args: [alertId, reasonCode, challengeNote, nowTs],
+    args: [alertId, reasonCode, challengeNote],
     value: BigInt(0),
   });
 }
@@ -108,11 +161,10 @@ export async function dismissAlert(
   alertId: string,
   note: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "dismiss_alert",
-    args: [alertId, note, nowTs],
+    args: [alertId, note],
     value: BigInt(0),
   });
 }
@@ -124,11 +176,10 @@ export async function createActionItem(
   assignedTeam: string,
   dueLevel: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "create_action_item",
-    args: [alertId, actionType, assignedTeam, dueLevel, nowTs],
+    args: [alertId, actionType, assignedTeam, dueLevel],
     value: BigInt(0),
   });
 }
@@ -138,11 +189,10 @@ export async function resolveAction(
   actionId: string,
   note: string
 ) {
-  const nowTs = Math.floor(Date.now() / 1000);
   return client.writeContract({
     address: getContractAddress(),
     functionName: "resolve_action",
-    args: [actionId, note, nowTs],
+    args: [actionId, note],
     value: BigInt(0),
   });
 }

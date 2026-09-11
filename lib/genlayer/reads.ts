@@ -42,7 +42,7 @@ export async function getContractSummary(client: WatchtowerClient): Promise<Cont
   try {
     return (await read(client, "get_contract_summary")) as ContractSummary;
   } catch {
-    return { total_sources: 0, total_profiles: 0, total_scans: 0, total_alerts: 0, total_actions: 0, total_reviews: 0, owner: "" };
+    return { total_sources: 0, total_profiles: 0, total_scans: 0, total_alerts: 0, total_actions: 0, total_reviews: 0, owner: "", bonded_balance: 0 };
   }
 }
 
@@ -58,6 +58,14 @@ export async function getScan(client: WatchtowerClient, scanId: string): Promise
   return (await read(client, "get_scan", [scanId])) as ScanRecord;
 }
 
+export async function getKeeperScanIds(client: WatchtowerClient, keeper: string, offset: number, limit: number): Promise<string[]> {
+  try {
+    return (await read(client, "get_keeper_scan_ids_v2", [keeper, String(offset), String(limit)])) as string[];
+  } catch {
+    return [];
+  }
+}
+
 export async function getSource(client: WatchtowerClient, sourceId: string): Promise<SourceRecord> {
   return (await read(client, "get_source", [sourceId])) as SourceRecord;
 }
@@ -67,7 +75,7 @@ export async function getKeeperStats(client: WatchtowerClient, keeper: string): 
     // Try checksummed first, then as-is
     const result = (await read(client, "get_keeper_stats", [keeper])) as KeeperStatsRecord;
     if (result.scans_triggered > 0) return result;
-    // The contract may store with different casing — try fetching all known keepers
+    // The contract may store with different casing - try fetching all known keepers
     const summary = await getContractSummary(client);
     for (let i = 1; i <= summary.total_scans; i++) {
       try {

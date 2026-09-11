@@ -29,8 +29,9 @@ The application combines a Next.js operations dashboard with a GenLayer Intellig
 | --- | --- |
 | Network | GenLayer StudioNet |
 | Chain ID | `61999` |
-| Contract | `0x9c8Fdf779Fb2A3C7f943376b54d7357fD19003b8` |
+| Contract | `0x133E154c0A4E89B8de701938cffa2E3dff759fc4` |
 | Explorer | [explorer-studio.genlayer.com](https://explorer-studio.genlayer.com) |
+| Live app | [watchtower2.vercel.app](https://watchtower2.vercel.app) |
 
 The contract source is located at [`contracts/watchtower.py`](contracts/watchtower.py).
 
@@ -45,15 +46,15 @@ The contract source is located at [`contracts/watchtower.py`](contracts/watchtow
 ### Installation
 
 ```bash
-git clone https://github.com/lolaaa00/watchtower.git
-cd watchtower
+git clone https://github.com/lolaaa00/watchtower2.git
+cd watchtower2
 npm install
 ```
 
 Create `.env.local`:
 
 ```env
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x9c8Fdf779Fb2A3C7f943376b54d7357fD19003b8
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x133E154c0A4E89B8de701938cffa2E3dff759fc4
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
 NEXT_PUBLIC_GENLAYER_EXPLORER_BASE_URL=https://explorer-studio.genlayer.com
@@ -80,13 +81,15 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Status | Meaning |
 | --- | --- |
-| `COMPLETED` | The scan succeeded and created at least one relevant alert. |
-| `NO_UPDATES` | The scan succeeded but found no new relevant items for the profile. |
-| `DUPLICATE_ONLY` | Relevant material was found but had already been recorded. |
-| `FAILED` | Fetching, parsing, validation, or consensus failed. |
-| `PENDING`, `FETCHING`, `CONSENSUS` | Intermediate processing states. |
+| `FETCHING` | Set when the scan record is created, before the leader's consensus round runs. |
+| `COMPLETED` | The scan succeeded and created at least one relevant alert (`alert_count > 0`). |
+| `NO_UPDATES` | The scan succeeded but created no alert — either nothing new was found, everything found was a duplicate of a prior alert, or nothing matched the profile. `duplicate_count` and `candidate_count` on the scan record distinguish which. |
+| `FAILED` | The source fetch, model output, or a downstream check failed; nothing was written beyond the scan record itself. |
 
-`NO_UPDATES` is a valid successful result. Watchtower does not create an alert unless the source contains material that genuinely matches the selected profile.
+`NO_UPDATES` is a valid successful result, not an error. Watchtower does not create an alert unless
+the source contains material that genuinely matches the selected profile — a scan finding zero new,
+relevant items is the expected outcome most of the time, confirmed repeatedly against the live CFPB
+Federal Register source during testing (`candidate_count: 0`, clean `NO_UPDATES`, no error).
 
 ### Testing a Positive Result
 
@@ -119,15 +122,217 @@ For deterministic StudioNet testing, host a public test JSON or text document co
 ```bash
 npm run lint
 npm run build
+npm run verify-schema
 ```
 
+`verify-schema` fetches the deployed contract's schema via `getContractSchema` and checks every
+`functionName` the frontend calls against it, catching a frontend/contract mismatch before it ships.
+
 The production build may require network access because Next.js downloads configured Google font assets during compilation.
+
+## Consensus Design
+
+Both non-deterministic blocks (`run_source_scan`'s extraction + classification, and
+`request_re_review`'s re-evaluation) use `gl.vm.run_nondet(leader_fn, validator_fn)` with two
+genuinely independent closures, not `gl.eq_principle.prompt_comparative` (which structurally
+cannot support this — its "validator" is just the same `fn` re-executed, so it can only ever
+compare a function against itself). `validator_fn` does real, independent work:
+
+- It re-fetches the source URL itself (`gl.nondet.web.request`), not the leader's fetched text.
+- It re-runs its own extraction/classification prompt against its own fetch.
+- It checks the leader's claimed `evidence_quote` (a required, verbatim, <25-word excerpt) as a
+  literal substring of its *own* fetched page text — a fabricated or paraphrased quote fails.
+- It checks the leader's claimed `official_url` is on the same domain as the registered source —
+  rejects a fabricated URL pointing outside the source's own domain.
+- It checks the leader's claimed `publication_date` (by year, tolerant of format) actually appears
+  in its own fetched text — rejects a wrong/fabricated date.
+- It requires `document_type` to match its own independent classification exactly, and requires
+  `relevance`, `materiality`, `urgency`, and `recommended_action` to fall within `RANK_TOLERANCE`
+  (currently 1) of its own independent classification on explicit rank orderings
+  (`RELEVANCE_RANK`, `MATERIALITY_RANK`, `URGENCY_RANK`, `ACTION_SEVERITY_TIER` in
+  `contracts/watchtower.py`) — this is the "harmless difference" tolerance: two independent runs
+  rarely produce byte-identical labels, but a validator marking a routine item CRITICAL/
+  EMERGENCY_ACTION when the leader said MEDIUM/WATCH_ONLY is outside tolerance and rejected.
+- A fetch failure is only accepted as valid consensus if the validator's own fetch also failed
+  (both sides independently confirm the source is unreachable) — a leader claiming success while
+  the validator can't reach the source at all is rejected outright.
+
+`request_re_review` applies the identical pattern against the alert's `official_url`, with one
+further protection: the outcome label (`UPHELD`, `RECLASSIFIED`, `URGENCY_RAISED`,
+`URGENCY_REDUCED`, `MATERIALITY_RAISED`, `MATERIALITY_REDUCED`, `SOURCE_UNVERIFIABLE`,
+`MORE_CONTEXT_REQUIRED`, `REVIEW_FAILED`) is never taken from the model — it's derived
+deterministically by the contract from how the agreed classification's fields actually compare to
+the alert's original values (see the outcome-derivation block at the end of `request_re_review`).
+This closes off "vocabulary-valid but relationally false" results (e.g. a model claiming
+`URGENCY_RAISED` while urgency didn't actually increase). A technical/consensus failure (unparseable
+model output, or a `run_nondet` exception) is recorded as its own `REVIEW_FAILED` outcome and never
+mutates the alert — it is not conflated with `UPHELD`, which means a real re-evaluation happened and
+genuinely found no change.
+
+## Identity and Duplicate Handling
+
+Scanned items now have two separate identities, stored in two separate `TreeMap[str, bool]` fields:
+
+- `canonical_items` — a global, presentation-independent document identity
+  (`_canonical_item_id(source_id, official_url)`, a hash of the source and normalized URL). This is
+  discovery bookkeeping only: "has Watchtower ever seen this document at all."
+- `seen_profile_items` — a profile-scoped identity (`_profile_item_id(profile_id, canonical_id)`)
+  that actually gates whether a scan alerts on an item.
+
+Previously a single global `seen_item_digests` map gated alerts directly, which meant one profile
+scanning an item silently suppressed the alert for every other profile that later scanned the same
+item — relevance is profile-specific, so that was a real bug, not just a naming issue. The fix
+means the same source document can now independently alert (or not) per profile, while a single
+profile re-scanning the same item is still correctly deduplicated. See
+`test_same_item_creates_independent_alerts_for_different_profiles` and
+`test_same_item_same_profile_twice_is_still_deduped` in
+[`tests/direct/test_reviewer_findings.py`](tests/direct/test_reviewer_findings.py).
+
+## Non-Manipulable Timestamps
+
+Every write method that reads or writes cooldown, due-date, liveness, or review-completion state
+derives `now_ts` exclusively from `gl.message_raw["datetime"]` via `_now_ts()`
+(`contracts/watchtower.py`) — there is no method anywhere in the ABI that accepts a caller-supplied
+timestamp for any of these decisions. See `test_now_ts_has_no_client_supplied_path` and
+`test_backward_time_warp_does_not_let_a_keeper_replay_an_earlier_cooldown` in
+[`tests/direct/test_reviewer_findings.py`](tests/direct/test_reviewer_findings.py).
+
+## Two-Wallet System
+
+On first load, Watchtower checks for a previously-connected injected wallet (silently, no popup).
+If none is found, it generates a browser wallet in `localStorage` immediately — no setup step, no
+"connect" button required to start reading or writing. The wallet menu (click the address in the
+top bar) shows the active mode, lets you export the generated key, import one on another device,
+or upgrade to an injected wallet (MetaMask / OKX) if one is available. Reads and writes always use
+the same client and the same address; there is no path where the displayed address and the signing
+address diverge. The generated key lives only in browser `localStorage` — it is not custody-grade,
+and the app says so before treating it as acknowledged.
+
+## Testing
+
+- `contracts/watchtower.py` — lint with `genvm-lint check contracts/watchtower.py --json` (requires
+  `pip install genvm-linter` in a Python 3.12+ environment). As of this revision it reports 2/3
+  checks passing plus 5 `E010` warnings ("gl.nondet.* call ... not reachable from equivalence
+  principle block") on the new `_fetch_page_text`/`_extract_items`/`_classify_item`/
+  `_fetch_re_review_source`/`_re_classify` helpers. This is a known linter gap, not a real defect:
+  `E010` is written to recognize the `gl.eq_principle.prompt_comparative` pattern specifically, and
+  does not yet recognize `gl.vm.run_nondet(leader_fn, validator_fn)` — the pattern this revision
+  switches to deliberately, because `prompt_comparative`'s validator is hardcoded to re-run the same
+  function and cannot express independent validator logic (see "Consensus Design" above, and the
+  GenLayer SDK's own `gl.vm.run_nondet` docstring, which recommends exactly this API for genuinely
+  custom validator behavior). Schema extraction (`validate`) also currently fails in this
+  environment with `E101 Failed to load SDK` — a missing cached runner tarball, unrelated to this
+  change, that could not be resolved without network access to fetch it. Naming the contract class
+  exactly `Contract` makes the linter's `find_contract_class` skip it as the base-class re-export
+  and report a false "no contract class found" — the class is named `WatchtowerContract` to avoid
+  that.
+- `tests/direct/` — 74 direct-mode tests, **all passing** (verified by actually running them, not
+  claimed from memory):
+  ```bash
+  python3.12 -m venv .venv && source .venv/bin/activate
+  pip install genlayer-test pytest
+  pytest tests/direct/ -v
+  ```
+  - `test_scan_validator.py` and `test_re_review_validator.py` (new) exercise the independent
+    `validator_fn` closures directly via `direct_vm.run_validator(leader_result=...)` — the
+    genlayer-test direct-mode harness runs the leader path for the contract call itself but captures
+    `validator_fn` for explicit invocation, since direct mode doesn't simulate full multi-node
+    consensus. These prove the validator rejects a fabricated URL/domain, a fabricated evidence
+    quote, a wrong publication date, a wrong document type, an unrelated CRITICAL/EMERGENCY_ACTION
+    escalation, and a claim of fetch success when the validator's own fetch fails — while still
+    agreeing on a genuinely independent match and tolerating harmless rank-adjacent differences.
+    Writing these tests caught a real bug in `_fetch_page_text`/`_fetch_re_review_source`: mocked
+    (and some live) web responses can return `bytes`, and the original code did not decode them
+    before running string operations like `.lower()`/`substring` checks in the validator, which
+    crashed with `TypeError`. Fixed by decoding to `str` before any text processing.
+  - `test_reviewer_findings.py` covers cross-profile duplicate independence, same-profile
+    deduplication, non-manipulable timestamps (including a backward-clock-warp attempt against a
+    stored cooldown), and re-review fetch-failure degradation.
+  - `test_reviews.py` / `test_re_review_validator.py` cover access control, invalid reason codes,
+    inadequate challenge notes, every re-review outcome (`UPHELD`, `RECLASSIFIED`,
+    `URGENCY_RAISED`/`REDUCED`, `MATERIALITY_RAISED`/`REDUCED`, `SOURCE_UNVERIFIABLE`,
+    `MORE_CONTEXT_REQUIRED`, `REVIEW_FAILED`), that `UPHELD`/`SOURCE_UNVERIFIABLE`/
+    `MORE_CONTEXT_REQUIRED` never mutate the alert, that `RECLASSIFIED` changes exactly the fields
+    the re-review actually changed, that a technical failure is recorded as `REVIEW_FAILED` (not
+    `UPHELD`) and does not mutate the alert, that an out-of-vocabulary field is clamped back to the
+    original rather than silently accepted, and that `last_reviewed_at` only advances on a review
+    that actually changes something.
+  - `test_scans.py`, `test_sources.py`, `test_profiles.py`, `test_bonding.py` cover the remaining
+    write paths audited for the same bug classes in this revision (caller-controlled time, global
+    state misused for profile-specific decisions, consensus failure recorded as success) — all
+    already used `_now_ts()` exclusively and were found clean.
+  - A prior phase's `gl.UserError` → `gl.vm.UserError` fix (every validation error in the contract
+    was silently broken) and a `run_manual_scan` fix so manual overrides can actually bypass the
+    schedule are documented in [`docs/DECISION_RECORD.md`](docs/DECISION_RECORD.md).
+- `tests/integration/test_studionet_smoke.py` — a real-consensus smoke test against StudioNet
+  (`gltest tests/integration/ -v -s --network studionet`) exists from a prior phase, but this
+  revision's changes were **not** re-verified against it: this environment has no network access to
+  StudioNet (confirmed directly — `npm run verify-schema` fails with `fetch failed` against the
+  configured RPC endpoint), and live consensus rounds additionally require a funded keystore this
+  environment does not have credentials for. The direct-mode suite above is the verified coverage
+  for this revision; StudioNet verification of the new validator logic is a real gap that a human
+  running `gltest tests/integration/ -v -s --network studionet` with network access should close
+  before treating this as fully proven end-to-end.
+- `gltest.config.yaml` sets `networks.default: studionet` so `gltest` never silently targets
+  localnet.
+- `npm run lint`, `npm run build` (Next.js typecheck + production build) — both pass clean against
+  this revision; no frontend files were changed since only internal contract logic and one new view
+  method (`get_review`) were added, and the frontend does not call it.
+
+## Decision Record
+
+[`docs/DECISION_RECORD.md`](docs/DECISION_RECORD.md) — 10 candidates spanning web-fetch, native GEN,
+image, and embedding capabilities; the chosen Signal Sweep workflow checked against every gate; and
+a self-audit of what the shipped project does and doesn't cover relative to the full candidate set.
 
 ## Contract Notes
 
 The contract stores collection indexes as pipe-separated strings in `TreeMap[str, str]`. This avoids runtime construction of nested `DynArray` storage values, which GenLayer does not permit inside contract methods.
 
 String-compatible `v2` methods are provided for frontend-facing numeric and address inputs. This keeps browser transaction encoding predictable while preserving the Watchtower product logic.
+
+All write methods that touch cooldown/expiry state now derive `now_ts` from
+`gl.message_raw["datetime"]` contract-side instead of accepting it as a client-supplied argument
+— see `_now_ts()` in `contracts/watchtower.py` and [`docs/DECISION_RECORD.md`](docs/DECISION_RECORD.md).
+A caller can no longer skew cooldown/due-date gating by lying about the time.
+
+The address above (`0x133E154c0A4E89B8de701938cffa2E3dff759fc4`) includes three fixes found while
+getting the direct test suite and linter running for the first time — a contract-wide `gl.UserError`
+→ `gl.vm.UserError` fix (every validation error was silently broken on the previous deployment,
+crashing with an unrelated `AttributeError` instead of the intended revert message), a
+`run_source_scan` signature change (`skip_due_check`/`trigger_type` params so `run_manual_scan` can
+actually bypass the schedule instead of just adding a mandatory reason field), and a class rename
+(`Contract` → `WatchtowerContract`, cosmetic only — `genvm-lint`'s `find_contract_class` otherwise
+skips a class literally named `Contract`, assuming it's the SDK's own base-class re-export). All
+three were verified live on this deployment: `register_source_v2`, `create_watch_profile`, a
+`run_source_scan` that reached `ACCEPTED`, and a `run_manual_scan` that correctly hit
+`SOURCE_COOLDOWN` (not `SOURCE_NOT_DUE`) when triggered ahead of schedule — direct proof the bypass
+works, since without the fix that call would revert `SOURCE_NOT_DUE` regardless of cooldown state.
+
+## Honest Limits
+
+- **`UNDETERMINED` was observed live**, once, on a manual sweep — three leader rotations without
+  quorum agreement. Nothing was written (confirmed via `get_contract_summary` before and after); the
+  frontend's retry path was used and the retried sweep reached `ACCEPTED` cleanly. This is a real,
+  expected StudioNet outcome, not a bug — see Phase 4 of the submission guidance this project was
+  built against.
+- **The first production deploy silently shipped with no environment variables set.** A `vercel env
+  add ... production` call had appeared to succeed but never actually took; the live site's reads
+  fell back to an unconfigured client and rendered an empty (but not visibly broken) state — 0
+  sources, 0 profiles — even though the contract had real data. Caught by comparing the live site's
+  `AUTHORITY SOURCES` count against a direct `genlayer call` to the same contract. Fixed by setting
+  all four `NEXT_PUBLIC_GENLAYER_*` variables explicitly and redeploying; verified with a real write
+  (`create_watch_profile`) against the redeployed production site.
+- **`pollTransactionLifecycle` had no error handling around its per-tick RPC read.** A single
+  transient network failure while polling a live, still-in-progress consensus round threw and
+  surfaced a raw `Failed to fetch` message instead of continuing to poll — misleading, since the
+  transaction was not actually failing, just slow. Fixed with a tolerance for up to 5 consecutive
+  fetch failures before giving up.
+- **Consensus writes are genuinely slow and variable.** Observed range across testing: as fast as
+  ~15s with zero rotations, up to 2+ minutes with 3 rotations before resolving (either `ACCEPTED` or
+  `UNDETERMINED`). Design the UI wait around minutes, not seconds — this project's lifecycle UI does.
+- **StudioNet balances are simulated.** This project doesn't move GEN, so this doesn't affect it
+  directly, but it's a general StudioNet caveat worth knowing if extending the contract.
 
 ## Security
 

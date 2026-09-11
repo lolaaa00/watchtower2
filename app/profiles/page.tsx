@@ -13,7 +13,7 @@ const INDUSTRIES = ["financial_services", "healthcare", "energy", "technology", 
 const RISK_AREAS = ["disclosure", "aml", "consumer_protection", "credit_risk", "data_privacy", "market_conduct", "operational_resilience", "cybersecurity", "reporting", "sanctions"];
 
 export default function ExposureMapPage() {
-  const { connected, client, address } = useWallet();
+  const { connected, ready, client, address } = useWallet();
   const { profileId, setProfileId } = useActiveProfile();
   const [profiles, setProfiles] = useState<WatchProfile[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -29,10 +29,17 @@ export default function ExposureMapPage() {
     getProfilesByOwner(client, address)
       .then((p) => {
         setProfiles(p);
-        if (p.length > 0 && !profileId) setProfileId(p[0].profile_id);
+        // The active profile ID is cached in localStorage and never re-verified
+        // against chain state — after a contract redeploy, IDs reset (the first
+        // profile on any fresh deployment is again "PRF-000001"), so a stale
+        // cached ID can silently resolve to a different profile. Self-heal by
+        // checking it against the verified owned-profiles list on every load.
+        const stillOwned = profileId && p.some((x) => x.profile_id === profileId);
+        if (!stillOwned) setProfileId(p.length > 0 ? p[0].profile_id : null);
       })
       .catch((e) => console.warn("Failed to load profiles:", e));
-  }, [client, address, profileId, setProfileId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, address]);
 
   const handleSubmit = async () => {
     if (!client || !form.company_name) return;
@@ -54,27 +61,35 @@ export default function ExposureMapPage() {
     }
   };
 
+  if (!ready) {
+    return (
+      <div className="p-8 max-w-5xl mx-auto animate-enter">
+        <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-heading)" }}>Exposure Map</h1>
+        <p className="text-[17px] mt-2" style={{ color: "var(--muted-instrument)" }}>Preparing your wallet…</p>
+      </div>
+    );
+  }
   if (!connected) {
     return (
-      <div className="p-5 animate-enter">
+      <div className="p-8 max-w-5xl mx-auto animate-enter">
         <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-heading)" }}>Exposure Map</h1>
-        <p className="text-[11px] mt-2" style={{ color: "var(--muted-instrument)" }}>Connect wallet to define your regulatory exposure.</p>
+        <p className="text-[17px] mt-2" style={{ color: "var(--muted-instrument)" }}>Connect wallet to define your regulatory exposure.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-5 animate-enter">
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
       <div className="flex items-end justify-between mb-5">
         <div>
           <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-heading)" }}>Exposure Map</h1>
-          <p className="text-[11px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>
+          <p className="text-[17px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>
             Your regulatory identity. All fields are public on-chain.
           </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="btn-copper px-3 py-1.5 text-[10px]"
+          className="btn-copper px-3 py-1.5 text-[16px]"
           style={{ fontFamily: "var(--font-heading)" }}
         >
           {showForm ? "CANCEL" : "NEW EXPOSURE MAP"}
@@ -96,10 +111,10 @@ export default function ExposureMapPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h2 className="text-[14px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>
+                  <h2 className="text-[17px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>
                     {p.company_name}
                   </h2>
-                  <p className="text-[10px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>
+                  <p className="text-[16px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>
                     {p.industry.replace(/_/g, " ")} · {p.jurisdictions.replace(/\|/g, ", ")}
                   </p>
                 </div>
@@ -109,13 +124,13 @@ export default function ExposureMapPage() {
                       ACTIVE
                     </span>
                   )}
-                  <span className="text-[9px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
+                  <span className="text-[12.5px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
                     {p.profile_id}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3.5">
                 <ProfileField label="Products" value={p.products} />
                 <ProfileField label="Risk Areas" value={p.risk_areas} />
                 <ProfileField label="Teams" value={p.internal_teams} />
@@ -124,10 +139,10 @@ export default function ExposureMapPage() {
               </div>
 
               <div className="flex gap-4 mt-3 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                <span className="text-[9px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
+                <span className="text-[12.5px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
                   Owner: {p.owner.slice(0, 8)}…{p.owner.slice(-6)}
                 </span>
-                <span className="text-[9px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
+                <span className="text-[12.5px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>
                   Created: {new Date(p.created_at * 1000).toLocaleDateString()}
                 </span>
               </div>
@@ -139,12 +154,12 @@ export default function ExposureMapPage() {
       {/* Empty state */}
       {profiles.length === 0 && !showForm && (
         <div className="obs-field p-6 text-center mb-6">
-          <p className="text-[12px] mb-3" style={{ color: "var(--muted-instrument)" }}>
+          <p className="text-[15px] mb-3" style={{ color: "var(--muted-instrument)" }}>
             No exposure map found for this wallet. Create one so Watchtower can judge regulatory impact for your company.
           </p>
           <button
             onClick={() => setShowForm(true)}
-            className="btn-copper px-4 py-1.5 text-[11px]"
+            className="btn-copper px-4 py-1.5 text-[17px]"
             style={{ fontFamily: "var(--font-heading)" }}
           >
             CREATE EXPOSURE MAP
@@ -155,7 +170,7 @@ export default function ExposureMapPage() {
       {/* Creation form */}
       {showForm && (
         <div className="obs-field p-5 space-y-4 max-w-xl">
-          <p className="text-[10px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>
+          <p className="text-[16px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>
             New Exposure Map
           </p>
 
@@ -164,7 +179,7 @@ export default function ExposureMapPage() {
           <div>
             <FieldLabel>Industry</FieldLabel>
             <select value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })}
-              className="w-full px-3 py-2 text-[12px]"
+              className="w-full px-3 py-2 text-[15px]"
               style={{ background: "var(--void-ink)", border: "1px solid var(--border)", color: "var(--signal-bone)", fontFamily: "var(--font-body)" }}>
               {INDUSTRIES.map((i) => <option key={i} value={i}>{i.replace(/_/g, " ")}</option>)}
             </select>
@@ -183,7 +198,7 @@ export default function ExposureMapPage() {
                     const cur = form.risk_areas.split("|").filter(Boolean);
                     setForm({ ...form, risk_areas: (on ? cur.filter((x) => x !== r) : [...cur, r]).join("|") });
                   }}
-                    className="text-[10px] px-2.5 py-1 font-bold uppercase transition-all"
+                    className="text-[16px] px-2.5 py-1 font-bold uppercase transition-all"
                     style={{
                       fontFamily: "var(--font-heading)",
                       border: `1px solid ${on ? "var(--regulatory-copper)" : "var(--border)"}`,
@@ -202,12 +217,12 @@ export default function ExposureMapPage() {
           <InputField label="Excluded Topics" value={form.excluded_topics} onChange={(v) => setForm({ ...form, excluded_topics: v })} placeholder="agriculture|energy|defense|immigration" />
 
           <button onClick={handleSubmit} disabled={tx.status === "prompting" || tx.status === "submitted" || !form.company_name}
-            className="btn-copper w-full py-2.5 text-[11px]" style={{ fontFamily: "var(--font-heading)" }}>
+            className="btn-copper w-full py-2.5 text-[17px]" style={{ fontFamily: "var(--font-heading)" }}>
             {tx.status === "prompting" ? "WALLET PROMPT…" : tx.status === "submitted" ? "CONFIRMING…" : "CREATE EXPOSURE MAP"}
           </button>
 
           {tx.hash && <TxHashRibbon hash={tx.hash} status={tx.status === "confirmed" ? "confirmed" : tx.status === "failed" ? "failed" : "pending"} label="CHAIN STAMP" />}
-          {tx.error && <p className="text-[11px]" style={{ color: "var(--pressure-red)" }}>{tx.error}</p>}
+          {tx.error && <p className="text-[17px]" style={{ color: "var(--pressure-red)" }}>{tx.error}</p>}
         </div>
       )}
     </div>
@@ -218,10 +233,10 @@ function ProfileField({ label, value }: { label: string; value: string }) {
   if (!value) return null;
   return (
     <div>
-      <span className="text-[8px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>
+      <span className="text-[15px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>
         {label}
       </span>
-      <p className="text-[10px] mt-0.5" style={{ color: "var(--faint-parchment)" }}>
+      <p className="text-[16px] mt-0.5" style={{ color: "var(--faint-parchment)" }}>
         {value.replace(/\|/g, " · ")}
       </p>
     </div>
@@ -229,7 +244,7 @@ function ProfileField({ label, value }: { label: string; value: string }) {
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-[9px] font-bold uppercase tracking-[0.1em] mb-1 block" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>{children}</label>;
+  return <label className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-1 block" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>{children}</label>;
 }
 
 function InputField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -237,7 +252,7 @@ function InputField({ label, value, onChange, placeholder }: { label: string; va
     <div>
       <FieldLabel>{label}</FieldLabel>
       <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full px-3 py-2 text-[12px] outline-none"
+        className="w-full px-3 py-2 text-[15px] outline-none"
         style={{ background: "var(--void-ink)", border: "1px solid var(--border)", color: "var(--signal-bone)", fontFamily: "var(--font-body)" }} />
     </div>
   );

@@ -18,22 +18,22 @@ export default function SecondReadingPage() {
   }, [client, profileId]);
 
   return (
-    <div className="p-5 animate-enter">
-      <h1 className="text-2xl font-black mb-1" style={{ fontFamily: "var(--font-heading)" }}>Second Reading</h1>
-      <p className="text-[11px] mb-6" style={{ color: "var(--muted-instrument)" }}>
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
+      <h1 className="text-3xl font-black mb-2 tracking-tight" style={{ fontFamily: "var(--font-heading)" }}>Second Reading</h1>
+      <p className="text-[17px] mb-6" style={{ color: "var(--muted-instrument)" }}>
         Challenge an impact classification through the consensus lens. A defined basis is required.
       </p>
 
       {alerts.length === 0 ? (
-        <div className="obs-field p-6 text-center"><p className="text-[12px]" style={{ color: "var(--muted-instrument)" }}>No impact readings available for second reading.</p></div>
+        <div className="obs-field p-6 text-center"><p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>No impact readings available for second reading.</p></div>
       ) : (
         <div className="space-y-2">
           {alerts.map((a) => (
             <Link key={a.alert_id} href={`/tribunal/${a.alert_id}`}>
               <div className="obs-field flex items-center justify-between px-4 py-3 transition-all hover:border-[var(--border-active)]">
                 <div>
-                  <p className="text-[12px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>{a.document_title}</p>
-                  <p className="text-[9px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>{a.authority} · {a.urgency.replace(/_/g, " ")} · {a.materiality.replace(/_/g, " ")}</p>
+                  <p className="text-[15px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>{a.document_title}</p>
+                  <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted-instrument)" }}>{a.authority} · {a.urgency.replace(/_/g, " ")} · {a.materiality.replace(/_/g, " ")}</p>
                 </div>
                 <span className="indicator" style={{ background: "rgba(154,124,255,0.1)", color: "var(--consensus-uv)" }}>REVIEW</span>
               </div>

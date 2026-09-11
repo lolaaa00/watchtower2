@@ -26,7 +26,7 @@ interface SourceTemplate {
 const TEMPLATES: SourceTemplate[] = [
   {
     slug: "cfpb-rules-notices",
-    display_name: "CFPB — Consumer Financial Rules & Notices",
+    display_name: "CFPB - Consumer Financial Rules & Notices",
     authority: "CFPB",
     jurisdiction: "US",
     sector: "financial_services",
@@ -39,7 +39,7 @@ const TEMPLATES: SourceTemplate[] = [
   },
   {
     slug: "federal-register-financial",
-    display_name: "Federal Register — Financial Services",
+    display_name: "Federal Register - Financial Services",
     authority: "Federal Register",
     jurisdiction: "US",
     sector: "financial_services",
@@ -52,7 +52,7 @@ const TEMPLATES: SourceTemplate[] = [
   },
   {
     slug: "federal-reserve-press",
-    display_name: "Federal Reserve — Press Releases",
+    display_name: "Federal Reserve - Press Releases",
     authority: "Federal Reserve",
     jurisdiction: "US",
     sector: "financial_services",
@@ -65,7 +65,7 @@ const TEMPLATES: SourceTemplate[] = [
   },
   {
     slug: "ecfr-title-12",
-    display_name: "eCFR Title 12 — Banks and Banking",
+    display_name: "eCFR Title 12 - Banks and Banking",
     authority: "eCFR",
     jurisdiction: "US",
     sector: "financial_services",
@@ -78,7 +78,7 @@ const TEMPLATES: SourceTemplate[] = [
   },
   {
     slug: "sec-regulatory-rss",
-    display_name: "SEC — Regulatory and Market Updates",
+    display_name: "SEC - Regulatory and Market Updates",
     authority: "SEC",
     jurisdiction: "US",
     sector: "financial_services",
@@ -92,7 +92,7 @@ const TEMPLATES: SourceTemplate[] = [
 ];
 
 export default function AuthorityControlPage() {
-  const { connected, client, address } = useWallet();
+  const { connected, ready, client, address } = useWallet();
   const [owner, setOwner] = useState<string | null>(null);
   const [registeredSources, setRegisteredSources] = useState<SourceRecord[]>([]);
   const [txStates, setTxStates] = useState<Record<string, TxState>>({});
@@ -155,25 +155,33 @@ export default function AuthorityControlPage() {
     }
   };
 
+  if (!ready) {
+    return (
+      <div className="p-8 max-w-5xl mx-auto animate-enter">
+        <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-heading)" }}>Authority Control</h1>
+        <p className="text-[17px] mt-2" style={{ color: "var(--muted-instrument)" }}>Preparing your wallet…</p>
+      </div>
+    );
+  }
   if (!connected) {
     return (
-      <div className="p-5 animate-enter">
+      <div className="p-8 max-w-5xl mx-auto animate-enter">
         <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-heading)" }}>Authority Control</h1>
-        <p className="text-[11px] mt-2" style={{ color: "var(--muted-instrument)" }}>Connect wallet to manage source apertures.</p>
+        <p className="text-[17px] mt-2" style={{ color: "var(--muted-instrument)" }}>Connect wallet to manage source apertures.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-5 animate-enter">
-      <h1 className="text-2xl font-black mb-1" style={{ fontFamily: "var(--font-heading)" }}>Authority Control</h1>
-      <p className="text-[11px] mb-6" style={{ color: "var(--muted-instrument)" }}>
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
+      <h1 className="text-3xl font-black mb-2 tracking-tight" style={{ fontFamily: "var(--font-heading)" }}>Authority Control</h1>
+      <p className="text-[17px] mb-6" style={{ color: "var(--muted-instrument)" }}>
         Open official source apertures so Watchtower can run real signal sweeps.
       </p>
 
       {/* Contract panel */}
       <div className="obs-field p-4 mb-6">
-        <p className="text-[9px] font-bold uppercase tracking-[0.1em] mb-3" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>
+        <p className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-3" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>
           Contract Status
         </p>
         <div className="space-y-1.5">
@@ -200,7 +208,7 @@ export default function AuthorityControlPage() {
       {/* Owner warning */}
       {ownerMatch === "no" && (
         <div className="obs-field p-4 mb-6" style={{ borderColor: "rgba(229,72,77,0.2)" }}>
-          <p className="text-[11px]" style={{ color: "var(--pressure-red)" }}>
+          <p className="text-[17px]" style={{ color: "var(--pressure-red)" }}>
             You are not the contract deployer. Only the deployer can register official source apertures. The deployer wallet is {owner?.slice(0, 10)}…{owner?.slice(-6)}.
           </p>
         </div>
@@ -219,14 +227,14 @@ export default function AuthorityControlPage() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold" style={{ fontFamily: "var(--font-display-num)", color: "var(--regulatory-copper)" }}>
+                    <span className="text-[16px] font-bold" style={{ fontFamily: "var(--font-display-num)", color: "var(--regulatory-copper)" }}>
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <h3 className="text-[13px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>
+                    <h3 className="text-[16px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>
                       {t.display_name}
                     </h3>
                   </div>
-                  <p className="text-[10px] mt-1" style={{ color: "var(--muted-instrument)" }}>{t.description}</p>
+                  <p className="text-[16px] mt-1" style={{ color: "var(--muted-instrument)" }}>{t.description}</p>
                 </div>
                 {registered && (
                   <span className="indicator" style={{ background: "rgba(89,209,140,0.1)", color: "var(--exposure-green)" }}>
@@ -235,7 +243,7 @@ export default function AuthorityControlPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 mb-3">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-3 mb-3">
                 <DataRow label="Authority" value={t.authority} />
                 <DataRow label="Jurisdiction" value={t.jurisdiction} />
                 <DataRow label="Source Type" value={t.source_type} />
@@ -245,10 +253,10 @@ export default function AuthorityControlPage() {
               </div>
 
               <div className="mb-3">
-                <span className="text-[8px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>
+                <span className="text-[15px] font-bold uppercase tracking-[0.1em]" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>
                   Source URL
                 </span>
-                <p className="text-[9px] mt-0.5 break-all" style={{ fontFamily: "var(--font-data)", color: "var(--authority-blue)" }}>
+                <p className="text-[12.5px] mt-0.5 break-all" style={{ fontFamily: "var(--font-data)", color: "var(--authority-blue)" }}>
                   {t.url}
                 </p>
               </div>
@@ -256,14 +264,14 @@ export default function AuthorityControlPage() {
               {!registered && (
                 <>
                   {!canRegister && !isPrimary ? (
-                    <p className="text-[10px]" style={{ color: "var(--muted-instrument)" }}>
+                    <p className="text-[16px]" style={{ color: "var(--muted-instrument)" }}>
                       Register after Federal Register is green.
                     </p>
                   ) : (
                     <button
                       onClick={() => handleRegister(t)}
                       disabled={tx.status === "prompting" || tx.status === "submitted"}
-                      className="btn-copper px-4 py-1.5 text-[10px] w-full"
+                      className="btn-copper px-4 py-1.5 text-[16px] w-full"
                       style={{ fontFamily: "var(--font-heading)" }}
                     >
                       {tx.status === "prompting" ? "WALLET PROMPT…" : tx.status === "submitted" ? "CONFIRMING ON-CHAIN…" : "OPEN SOURCE APERTURE"}
@@ -277,7 +285,7 @@ export default function AuthorityControlPage() {
                   <TxHashRibbon hash={tx.hash} status={tx.status === "confirmed" ? "confirmed" : tx.status === "failed" ? "failed" : "pending"} label="CHAIN STAMP" />
                 </div>
               )}
-              {tx.error && <p className="text-[10px] mt-2" style={{ color: "var(--pressure-red)" }}>{tx.error}</p>}
+              {tx.error && <p className="text-[16px] mt-2" style={{ color: "var(--pressure-red)" }}>{tx.error}</p>}
             </div>
           );
         })}
@@ -288,7 +296,7 @@ export default function AuthorityControlPage() {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between items-center text-[10px]">
+    <div className="flex justify-between items-center text-[16px]">
       <span style={{ color: "var(--muted-instrument)" }}>{label}</span>
       {value}
     </div>
@@ -297,7 +305,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 function DataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="text-[10px]">
+    <div className="text-[16px]">
       <span style={{ color: "var(--muted-instrument)" }}>{label}: </span>
       <span style={{ fontFamily: "var(--font-data)", color: "var(--faint-parchment)" }}>{value}</span>
     </div>

@@ -37,19 +37,19 @@ export default function ImpactCasefilePage() {
     } catch (e: any) { setTx({ status: "failed", error: e.message }); }
   };
 
-  if (!alert) return <div className="p-5"><p className="text-[12px]" style={{ color: "var(--muted-instrument)" }}>Loading impact casefile…</p></div>;
+  if (!alert) return <div className="p-5"><p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>Loading impact casefile…</p></div>;
 
   return (
-    <div className="p-5 animate-enter">
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
       {/* Title band */}
       <div className="obs-field p-4 mb-5">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-lg font-black" style={{ fontFamily: "var(--font-heading)" }}>{alert.document_title}</h1>
-            <p className="text-[10px] mt-1" style={{ color: "var(--muted-instrument)" }}>{alert.authority} · {alert.jurisdiction} · {alert.publication_date}</p>
+            <p className="text-[16px] mt-1" style={{ color: "var(--muted-instrument)" }}>{alert.authority} · {alert.jurisdiction} · {alert.publication_date}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[9px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>{alert.alert_id}</span>
+            <span className="text-[12.5px]" style={{ fontFamily: "var(--font-data)", color: "var(--muted-instrument)" }}>{alert.alert_id}</span>
             <span className="indicator" style={{
               background: alert.status === "OPEN" ? "rgba(255,179,71,0.1)" : "rgba(89,209,140,0.1)",
               color: alert.status === "OPEN" ? "var(--seismic-amber)" : "var(--exposure-green)",
@@ -77,12 +77,12 @@ export default function ImpactCasefilePage() {
         {/* Center: Impact reading content */}
         <div className="space-y-4">
           <div className="obs-trace pl-4 py-3 pr-3">
-            <p className="text-[9px] font-bold uppercase tracking-[0.1em] mb-2" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>Impact Summary</p>
-            <p className="text-[11px] leading-relaxed" style={{ fontFamily: "var(--font-body)", color: "var(--ash-paper)" }}>{alert.short_extract}</p>
+            <p className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-2" style={{ fontFamily: "var(--font-heading)", color: "var(--regulatory-copper)" }}>Impact Summary</p>
+            <p className="text-[17px] leading-relaxed" style={{ fontFamily: "var(--font-body)", color: "var(--ash-paper)" }}>{alert.short_extract}</p>
           </div>
           <div className="obs-field p-4">
-            <p className="text-[9px] font-bold uppercase tracking-[0.1em] mb-2" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>Regulatory Context</p>
-            <p className="text-[11px] leading-relaxed" style={{ fontFamily: "var(--font-body)", color: "var(--muted-instrument)" }}>{alert.reason}</p>
+            <p className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-2" style={{ fontFamily: "var(--font-heading)", color: "var(--muted-instrument)" }}>Regulatory Context</p>
+            <p className="text-[17px] leading-relaxed" style={{ fontFamily: "var(--font-body)", color: "var(--muted-instrument)" }}>{alert.reason}</p>
           </div>
           <div className="obs-field p-4 space-y-1.5">
             <CRow label="Compliance Writ" value={alert.recommended_action.replace(/_/g, " ")} />
@@ -97,8 +97,8 @@ export default function ImpactCasefilePage() {
         {/* Right: Source evidence + actions */}
         <div className="space-y-4">
           <div className="obs-inset p-4">
-            <p className="text-[9px] font-bold uppercase tracking-[0.1em] mb-3" style={{ fontFamily: "var(--font-heading)", color: "var(--authority-blue)" }}>Source Evidence</p>
-            <div className="space-y-2.5 text-[10px]">
+            <p className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-3" style={{ fontFamily: "var(--font-heading)", color: "var(--authority-blue)" }}>Source Evidence</p>
+            <div className="space-y-2.5 text-[16px]">
               <div>
                 <span style={{ color: "var(--muted-instrument)" }}>Official URL</span>
                 <a href={alert.official_url} target="_blank" rel="noopener noreferrer" className="block hover:underline truncate" style={{ fontFamily: "var(--font-data)", color: "var(--authority-blue)" }}>
@@ -121,18 +121,18 @@ export default function ImpactCasefilePage() {
           </div>
 
           <div className="obs-field p-3 space-y-2">
-            <Link href={`/tribunal/${alert.alert_id}`} className="block w-full text-center text-[10px] py-2 font-bold uppercase" style={{ fontFamily: "var(--font-heading)", background: "var(--consensus-uv)", color: "white" }}>
+            <Link href={`/tribunal/${alert.alert_id}`} className="block w-full text-center text-[16px] py-2 font-bold uppercase" style={{ fontFamily: "var(--font-heading)", background: "var(--consensus-uv)", color: "white" }}>
               Request Second Reading
             </Link>
             {alert.status === "OPEN" && (
-              <button onClick={handleDismiss} className="btn-outline w-full py-1.5 text-[10px] font-bold uppercase" style={{ fontFamily: "var(--font-heading)" }}>
+              <button onClick={handleDismiss} className="btn-outline w-full py-1.5 text-[16px] font-bold uppercase" style={{ fontFamily: "var(--font-heading)" }}>
                 Dismiss
               </button>
             )}
             {tx.hash && <TxHashRibbon hash={tx.hash} status={tx.status === "confirmed" ? "confirmed" : "pending"} label="CHAIN STAMP" />}
           </div>
 
-          <p className="text-[8px]" style={{ color: "var(--muted-instrument)" }}>
+          <p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>
             Compliance intelligence only. Not legal advice. Review with qualified professionals before acting.
           </p>
         </div>
@@ -143,7 +143,7 @@ export default function ImpactCasefilePage() {
 
 function CRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="flex justify-between text-[10px]">
+    <div className="flex justify-between text-[16px]">
       <span style={{ color: "var(--muted-instrument)" }}>{label}</span>
       <span style={{ fontFamily: mono ? "var(--font-data)" : "var(--font-body)", color: "var(--faint-parchment)" }}>{value}</span>
     </div>

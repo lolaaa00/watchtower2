@@ -20,14 +20,14 @@ export default function AuthorityFieldPage() {
   }, [client]);
 
   return (
-    <div className="p-5 animate-enter">
-      <h1 className="text-2xl font-black mb-1" style={{ fontFamily: "var(--font-heading)" }}>Authority Field</h1>
-      <p className="text-[11px] mb-6" style={{ color: "var(--muted-instrument)" }}>
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
+      <h1 className="text-3xl font-black mb-2 tracking-tight" style={{ fontFamily: "var(--font-heading)" }}>Authority Field</h1>
+      <p className="text-[17px] mb-6" style={{ color: "var(--muted-instrument)" }}>
         Official regulatory sources registered on-chain. Each source aperture has a signal sweep schedule enforced by the contract.
       </p>
 
       {loading && !sources.length ? (
-        <div className="obs-field p-6 text-center"><p className="text-[12px]" style={{ color: "var(--muted-instrument)" }}>Scanning authority field…</p></div>
+        <div className="obs-field p-6 text-center"><p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>Scanning authority field…</p></div>
       ) : sources.length === 0 ? (
         <EmptyAuthorityField address={address} client={client} />
       ) : (
@@ -47,13 +47,13 @@ function SourceAperture({ source, nowTs }: { source: SourceRecord; nowTs: number
     <div className="obs-aperture p-4">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 flex items-center justify-center text-[9px] font-black"
+          <div className="w-8 h-8 flex items-center justify-center text-[12.5px] font-black"
             style={{ fontFamily: "var(--font-heading)", background: isDue ? "rgba(255,179,71,0.12)" : "rgba(75,163,199,0.08)", color: isDue ? "var(--seismic-amber)" : "var(--authority-blue)" }}>
             {source.authority.slice(0, 3).toUpperCase()}
           </div>
           <div>
-            <p className="text-[12px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>{source.authority}</p>
-            <p className="text-[9px]" style={{ color: "var(--muted-instrument)" }}>{source.jurisdiction} · {source.sector}</p>
+            <p className="text-[15px] font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--signal-bone)" }}>{source.authority}</p>
+            <p className="text-[12.5px]" style={{ color: "var(--muted-instrument)" }}>{source.jurisdiction} · {source.sector}</p>
           </div>
         </div>
         <span className="indicator" style={{
@@ -75,7 +75,7 @@ function SourceAperture({ source, nowTs }: { source: SourceRecord; nowTs: number
       {isDue && (
         <div className="mt-3 pt-2 flex items-center gap-2" style={{ borderTop: "1px solid rgba(255,179,71,0.15)" }}>
           <div className="w-[5px] h-[5px] rounded-full animate-signal" style={{ background: "var(--seismic-amber)" }} />
-          <span className="text-[9px] font-bold uppercase" style={{ fontFamily: "var(--font-heading)", color: "var(--seismic-amber)" }}>UNRESOLVED SIGNAL</span>
+          <span className="text-[12.5px] font-bold uppercase" style={{ fontFamily: "var(--font-heading)", color: "var(--seismic-amber)" }}>UNRESOLVED SIGNAL</span>
         </div>
       )}
     </div>
@@ -84,7 +84,7 @@ function SourceAperture({ source, nowTs }: { source: SourceRecord; nowTs: number
 
 function DataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between text-[10px]">
+    <div className="flex justify-between text-[16px]">
       <span style={{ color: "var(--muted-instrument)" }}>{label}</span>
       <span style={{ fontFamily: "var(--font-data)", color: "var(--faint-parchment)" }}>{value}</span>
     </div>
@@ -105,15 +105,15 @@ function EmptyAuthorityField({ address, client }: { address: string | null; clie
 
   return (
     <div className="obs-field p-6 text-center">
-      <p className="text-[12px] mb-4" style={{ color: "var(--muted-instrument)" }}>
+      <p className="text-[15px] mb-4" style={{ color: "var(--muted-instrument)" }}>
         No source apertures are open yet. The deployer must open official source apertures before signal sweeps can run.
       </p>
       {isOwner ? (
-        <Link href="/admin/sources" className="btn-copper px-5 py-2 text-[11px] inline-block" style={{ fontFamily: "var(--font-heading)" }}>
+        <Link href="/admin/sources" className="btn-copper px-5 py-2 text-[17px] inline-block" style={{ fontFamily: "var(--font-heading)" }}>
           OPEN AUTHORITY CONTROL
         </Link>
       ) : (
-        <p className="text-[11px]" style={{ color: "var(--muted-instrument)" }}>
+        <p className="text-[17px]" style={{ color: "var(--muted-instrument)" }}>
           Waiting for deployer to open official source apertures.
         </p>
       )}

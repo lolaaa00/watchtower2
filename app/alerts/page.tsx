@@ -24,16 +24,16 @@ export default function ImpactReadingsPage() {
   const filtered = filter === "ALL" ? alerts : alerts.filter((a) => a.urgency === filter || a.status === filter || a.materiality === filter);
 
   return (
-    <div className="p-5 animate-enter">
-      <h1 className="text-2xl font-black mb-1" style={{ fontFamily: "var(--font-heading)" }}>Impact Readings</h1>
-      <p className="text-[11px] mb-5" style={{ color: "var(--muted-instrument)" }}>
+    <div className="p-8 max-w-5xl mx-auto animate-enter">
+      <h1 className="text-3xl font-black mb-2 tracking-tight" style={{ fontFamily: "var(--font-heading)" }}>Impact Readings</h1>
+      <p className="text-[17px] mb-5" style={{ color: "var(--muted-instrument)" }}>
         Consensus-backed regulatory impact records. Source first. Consensus second. Chain stamp third.
       </p>
 
       <div className="flex gap-1.5 mb-5 flex-wrap">
         {FILTERS.map((f) => (
           <button key={f} onClick={() => setFilter(f)}
-            className="text-[9px] px-2.5 py-1 font-bold uppercase transition-all"
+            className="text-[12.5px] px-2.5 py-1 font-bold uppercase transition-all"
             style={{
               fontFamily: "var(--font-heading)",
               border: `1px solid ${filter === f ? "var(--regulatory-copper)" : "var(--border)"}`,
@@ -46,9 +46,9 @@ export default function ImpactReadingsPage() {
       </div>
 
       {!profileId ? (
-        <p className="text-[12px]" style={{ color: "var(--muted-instrument)" }}>Select an exposure map to view impact readings.</p>
+        <p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>Select an exposure map to view impact readings.</p>
       ) : alerts.length === 0 ? (
-        <div className="obs-field p-6 text-center"><p className="text-[12px]" style={{ color: "var(--muted-instrument)" }}>No impact readings recorded for this exposure map.</p></div>
+        <div className="obs-field p-6 text-center"><p className="text-[15px]" style={{ color: "var(--muted-instrument)" }}>No impact readings recorded for this exposure map.</p></div>
       ) : (
         <div className="space-y-2">
           {filtered.map((a) => (

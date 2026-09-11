@@ -51,6 +51,9 @@ export interface ScanRecord {
   skipped_count: number;
   error_code: string;
   result_summary: string;
+  bond_amount: number;
+  bond_status: string;
+  challenge_deadline: number;
 }
 
 export interface AlertRecord {
@@ -100,12 +103,32 @@ export interface ContractSummary {
   total_actions: number;
   total_reviews: number;
   owner: string;
+  bonded_balance: number;
 }
 
-export type TxStatus = "idle" | "prompting" | "submitted" | "confirming" | "confirmed" | "failed";
+export type TxStatus =
+  | "idle"
+  | "prompting"
+  | "submitted"
+  | "confirming"
+  | "confirmed"
+  | "PENDING"
+  | "PROPOSING"
+  | "COMMITTING"
+  | "REVEALING"
+  | "ACCEPTED"
+  | "FINALIZED"
+  | "UNDETERMINED"
+  | "CANCELED"
+  | "VALIDATORS_TIMEOUT"
+  | "LEADER_TIMEOUT"
+  | "failed";
 
 export interface TxState {
   status: TxStatus;
   hash?: string;
   error?: string;
+  /** True when the outcome (e.g. UNDETERMINED) means nothing was written and a retry is the right next step. */
+  retryable?: boolean;
+  startedAt?: number;
 }
