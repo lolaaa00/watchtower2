@@ -300,6 +300,26 @@ and the app says so before treating it as acknowledged.
   and `docs/DECISION_RECORD.md` for the exact UI change).
 - `npm run verify-schema` — **passes, 24/24 call sites**, against the freshly deployed
   `0x36250004511C89BDc49eCfD4e87cd57EDcc43611` (see StudioNet Deployment table above).
+- **Production (`watchtower2.vercel.app`) verified separately from local dev/StudioNet testing.**
+  Deploying the reviewed contract to StudioNet and updating `.env.local` does not update the live
+  production site — `NEXT_PUBLIC_*` values are baked into the build at build time, and Vercel's
+  Production environment variables are a separate store from `.env.local`. This pass updated
+  Vercel's Production `NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS` to the same address above and triggered
+  a real production deploy (`vercel --prod`), then confirmed the address is actually present in the
+  shipped JS bundle (not just configured) by fetching the production chunks directly. See
+  `tests/integration/test_production_verification.py` and
+  [`docs/LAST_PRODUCTION_VERIFICATION.txt`](docs/LAST_PRODUCTION_VERIFICATION.txt) for a completed
+  production test (fresh profile creation, a real Signal Sweep, consensus `ACCEPTED`, and the
+  refreshed scan state), independently cross-checked by loading the live production Chain Ledger page
+  itself immediately afterward and confirming its displayed counts matched exactly.
+- **A real, previously-undetected bug was found and fixed while doing this**: `genlayer-js` 1.1.8
+  decodes structured contract return values as a native JS `Map`, not a plain object, but every read
+  in `lib/genlayer/reads.ts` used dot-notation field access (`summary.total_sources`) — which returns
+  `undefined` on a `Map` instead of throwing, so it silently rendered as `0`/blank everywhere in the
+  UI with no console error, for every StudioNet deployment this project has ever had, independent of
+  which contract address was configured. See `docs/DECISION_RECORD.md`'s "Fourth pass" section for
+  the full diagnosis; fixed with a single `plainify()` conversion at the shared `read()` choke point
+  in `lib/genlayer/reads.ts`.
 
 ## Decision Record
 

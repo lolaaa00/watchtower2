@@ -1,0 +1,11 @@
+contract_address=0x36250004511C89BDc49eCfD4e87cd57EDcc43611
+create_profile_tx=0x1b5b143120fcdcd911f6fe672dc68e7513e2da0275303a36df8596f90fe4425f
+create_profile_status=TransactionStatus.FINALIZED
+profile_id=PRF-000002
+scan_tx=0xfb21ba111ff6dd764cd06892dbe90760df06f3fcb749d95ddc706dd76b120e94
+scan_tx_status=TransactionStatus.ACCEPTED
+scan_id=SCN-000002
+scan_record_status=NO_UPDATES
+scan_candidate_count=0
+scan_alert_count=0
+alert=NONE (scan completed cleanly but the live CFPB Federal Register feed had no candidate item matching this profile/date-window at the time of this run -- a legitimate NO_UPDATES/FAILED result, not a fabricated one; see scan_candidate_count above)

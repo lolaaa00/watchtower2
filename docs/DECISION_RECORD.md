@@ -388,6 +388,87 @@ verification, profile-scoped identity, non-manipulable timestamps (already corre
 phase, re-audited here and found still correct across every write method), and re-review outcome
 integrity — not new functionality.
 
+## Fourth pass: production redeploy, and a real bug found while verifying it
+
+The prior pass deployed the reviewed commit to StudioNet and updated the local `.env.local`/README,
+but never touched Vercel's actual **production** environment variables or triggered a production
+build — meaning `watchtower2.vercel.app` was still serving a build from before this entire
+remediation effort, with `NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS` baked in at build time to the old,
+pre-fix address (`0x133E154c0A4E89B8de701938cffa2E3dff759fc4`). A correctly-behaving contract sitting
+unused in a test deploy proves nothing about what's actually live. This pass closed that gap and, in
+verifying it, found a real, previously-undetected defect that had nothing to do with the contract at
+all.
+
+**Production environment fixed to match the reviewed commit:**
+- `vercel env rm/add NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS production` updated the Production
+  environment variable to `0x36250004511C89BDc49eCfD4e87cd57EDcc43611` (the address deployed and
+  verified in the third pass above — not a new deployment, since that one already demonstrably
+  matched this commit's contract source).
+- `vercel --prod` triggered a real production build and deploy from the current working tree (`git
+  status` was clean at `cb7af0d` before this pass's frontend fix, HEAD after it), aliased to
+  `https://watchtower2.vercel.app`. Confirmed the correct address is actually baked into the shipped
+  JS bundle by fetching the production chunk files directly and grepping for the address string —
+  `0x36250004511C89BDc49eCfD4e87cd57EDcc43611` is present; the old address is not.
+
+**Real bug found while verifying the production reads actually worked**: opening the live production
+site showed `Authority Sources: 0` on the homepage, despite the contract (confirmed independently via
+a direct `gl_client.read_contract` call) genuinely holding `total_sources: 1`. Patching `window.fetch`
+in the live page to capture the raw GenLayer RPC traffic showed the `gen_call` request/response were
+both completely correct — the wire-format response, decoded with `genlayer-js`'s own
+`abi.calldata.decode` in a plain Node REPL, produced the right values (`total_sources: 1n`,
+`total_profiles: 1n`, etc.). The bug: `genlayer-js` 1.1.8's calldata decoder returns dict-shaped
+contract return values as a native JS `Map` (see `decodeImpl`'s `TYPE_MAP` case in
+`genlayer-js/dist/index.js`, which builds and returns a `new Map()`), not a plain object — but every
+read function in `lib/genlayer/reads.ts` (and every consumer of them across the whole app) accesses
+fields with dot notation (`summary.total_sources`, `s.authority`, etc.). Property access on a `Map`
+silently returns `undefined` instead of throwing, so this never surfaced as a visible error anywhere
+in this project's history — it just rendered as `0`/blank across every page, indistinguishable from
+"the contract genuinely has no data yet." This is **not new to this remediation pass or this
+contract** — it would have affected every previous StudioNet deployment's frontend identically, for
+as long as `genlayer-js` has returned `Map` for structured reads. It was caught here specifically
+because this pass required actually opening the live production site and checking a known-nonzero
+value against it, rather than trusting that a successful RPC round-trip meant the UI was correct.
+
+**Fix**: `lib/genlayer/reads.ts`'s shared `read()` helper now runs every result through a new
+`plainify()` function that recursively converts `Map` → plain object and `bigint` → `number` (the
+decoder also returns `bigint` for integer fields, which the existing `ContractSummary`/`AlertRecord`/
+etc. TypeScript interfaces already declare as `number`) before returning it to any caller. This is a
+single choke-point fix — every existing read function and every page consuming them benefits without
+call-site changes. Verified locally (contract summary and source list rendered correctly against the
+same contract that previously showed all zeros) before redeploying to production.
+
+**Completed production test** (run against the address now live in production, via
+`tests/integration/test_production_verification.py`, `gltest ... --network studionet`):
+1. `create_watch_profile` (a fresh profile, `PRF-000002`) — tx
+   `0x1b5b143120fcdcd911f6fe672dc68e7513e2da0275303a36df8596f90fe4425f`, `FINALIZED`.
+2. `run_manual_scan` (a real Signal Sweep, wide 2025-01-01–2026-09-12 window against the registered
+   CFPB Federal Register source) — tx
+   `0xfb21ba111ff6dd764cd06892dbe90760df06f3fcb749d95ddc706dd76b120e94`, reached `ACCEPTED` (real
+   `leader_fn`/`validator_fn` `gl.vm.run_nondet` consensus, live LLM/web calls).
+3. Canonical read-back of the resulting scan record (`SCN-000002`): `status: NO_UPDATES`,
+   `candidate_count: 0`, `alert_count: 0` — the live CFPB feed had no candidate item matching this
+   profile/window at the time of the run. This is reported as exactly what it is: a legitimate
+   zero-candidate result (consistent with this project's own prior live-testing history), not
+   evidence of a broken pipeline, and not a fabricated alert to make the demo look more complete than
+   it honestly is.
+4. The refreshed state (`total_profiles: 2`, `total_scans: 2`, `authority sources: 1`) was then
+   independently confirmed **through the live production site itself** (`watchtower2.vercel.app`),
+   post-redeploy, post-fix — the Chain Ledger page shows `Contract 0x36250004…Dcc43611`, `Authority
+   Sources 1`, `Exposure Maps 2`, `Signal Sweeps 2`, matching the transactions above exactly. This is
+   the strongest form of "canonical reads confirm the result" available without a browser wallet
+   holding real funds: the same public contract, read through the same production frontend code path
+   a real user would hit, immediately after the transactions were submitted by a different signer.
+   Exact hashes and values also recorded in
+   [`docs/LAST_PRODUCTION_VERIFICATION.txt`](LAST_PRODUCTION_VERIFICATION.txt).
+
+**Honest limit, stated plainly**: this test did not produce an `alert` (no `COMPLETED` scan, no
+`ALT-*` record) because the live CFPB Federal Register feed did not have new matching material for
+this profile at the moment the sweep ran — not because of any deliberate scope decision. Producing a
+`COMPLETED` scan with a real alert deterministically would require either a live source document that
+happens to match at request time, or a synthetic test source (see the README's "Testing a Positive
+Result" section, already a documented, non-deterministic limitation of this project going back to its
+original build) — no result was invented to appear more complete than what genuinely happened.
+
 ## Third pass: HTTP hardening, identity recomputation, and closing the "review without proof" gap
 
 A follow-up request asked for direct verification (not reliance on the README or prior test

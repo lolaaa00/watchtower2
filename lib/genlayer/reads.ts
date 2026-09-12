@@ -14,15 +14,36 @@ async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// genlayer-js's calldata decoder returns contract dict/list return values as
+// native JS Map/Array (see decodeImpl's TYPE_MAP/TYPE_ARR cases in
+// genlayer-js/dist/index.js), not plain objects -- every read function below
+// accesses fields with dot notation (e.g. `summary.total_sources`), which
+// silently returns `undefined` on a Map instead of throwing, so the bug never
+// surfaced as an error: it just rendered as 0/blank everywhere in the UI.
+// This recursively converts every Map to a plain object (and every bigint,
+// which the decoder also returns for integer fields, to a number) so the rest
+// of this file's dot-notation field access actually works.
+function plainify(value: any): any {
+  if (value instanceof Map) {
+    const obj: Record<string, any> = {};
+    for (const [k, v] of value.entries()) obj[k] = plainify(v);
+    return obj;
+  }
+  if (Array.isArray(value)) return value.map(plainify);
+  if (typeof value === "bigint") return Number(value);
+  return value;
+}
+
 async function read(client: WatchtowerClient, functionName: string, args: any[] = [], retries = 3): Promise<any> {
   const contractAddr = getContractAddress();
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      return await client.readContract({
+      const result = await client.readContract({
         address: contractAddr,
         functionName,
         args,
       });
+      return plainify(result);
     } catch (e: any) {
       const msg = e?.message || "";
       const isRetryable = msg.includes("Server busy") || msg.includes("execution slots") || msg.includes("ETIMEDOUT") || msg.includes("ECONNRESET");
