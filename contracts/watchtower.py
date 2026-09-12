@@ -931,10 +931,28 @@ class WatchtowerContract(gl.Contract):
             return verdict
 
         def _fetch_page_text(url: str):
+            # Only a genuine 2xx response with a non-empty body counts as a
+            # successful fetch. A redirect (3xx), a client/server error (4xx/5xx),
+            # a malformed/missing status, or an empty body must all degrade to the
+            # same conservative "unverifiable" path as a network-level exception --
+            # none of them are evidence a document actually exists at this URL.
             try:
                 web_data = gl.nondet.web.request(url, method="GET")
-                raw = web_data.body if hasattr(web_data, 'body') else web_data
+                status = getattr(web_data, 'status', None)
+                if status is None:
+                    return "", False
+                try:
+                    status_int = int(status)
+                except Exception:
+                    return "", False
+                if status_int < 200 or status_int >= 300:
+                    return "", False
+                raw = getattr(web_data, 'body', None)
+                if raw is None:
+                    return "", False
                 text = raw.decode('utf-8', errors='replace') if isinstance(raw, (bytes, bytearray)) else str(raw)
+                if not text.strip():
+                    return "", False
                 return text[:4000], True
             except Exception:
                 return "", False
@@ -1091,22 +1109,48 @@ Return ONLY this JSON:
                 if not isinstance(verdict, dict):
                     return False
 
-                # 1. The claimed evidence quote must be a literal, checkable
-                # substring of THIS validator's own independently-fetched page --
-                # not merely present in the leader's own copy of it. This is the
+                # 1. The claimed evidence quote must be non-empty, no more than 25
+                # words (matching the extraction prompt's own instruction -- a
+                # "verbatim excerpt" that balloons past that is no longer a
+                # pointer to a specific fact, it's a paraphrase-sized chunk that's
+                # easy to trivially satisfy), and a literal, checkable substring
+                # of THIS validator's own independently-fetched page -- not
+                # merely present in the leader's own copy of it. This is the
                 # concrete, deterministic guard against a fabricated item: no
                 # amount of vocabulary-valid classification can substitute for
                 # evidence actually being found in the source.
-                if not quote or _normalize_text(quote) not in _normalize_text(own_page_text):
+                if not quote or len(quote.split()) > 25:
+                    return False
+                if _normalize_text(quote) not in _normalize_text(own_page_text):
                     return False
 
-                # 2. The claimed official_url must belong to the registered
+                # 2. The claimed title must itself be independently checkable
+                # against this validator's own fetch -- not accepted purely
+                # because the leader typed it. A title is usually a paraphrase
+                # of page wording (word order rearranged, articles dropped), so
+                # this checks word overlap rather than requiring a literal
+                # substring match (that's what evidence_quote is for): most of
+                # the title's own significant words must actually appear
+                # somewhere in the independently-fetched content, which closes
+                # off a wholesale fabricated title while tolerating normal
+                # paraphrase.
+                if not title:
+                    return False
+                title_words = [w for w in _normalize_text(title).split() if len(w) > 2]
+                page_words = set(_normalize_text(own_page_text).split())
+                if not title_words:
+                    return False
+                overlap = sum(1 for w in title_words if w in page_words) / len(title_words)
+                if overlap < 0.6:
+                    return False
+
+                # 3. The claimed official_url must belong to the registered
                 # source's own domain -- rejects a fabricated URL pointing
                 # somewhere the source never published anything.
                 if _url_domain(official_url) != _url_domain(src.url):
                     return False
 
-                # 3. The claimed publication year must appear somewhere in the
+                # 4. The claimed publication year must appear somewhere in the
                 # independently-fetched content. Lenient on exact day/month
                 # formatting (sources render dates inconsistently), strict on the
                 # year -- catches a materially wrong publication date without
@@ -1115,14 +1159,32 @@ Return ONLY this JSON:
                 if year and year not in own_page_text and pub_date not in own_page_text:
                     return False
 
-                # 4. Independently re-classify this item from this validator's own
+                # 5. Evidence identity must be recomputed by THIS validator from
+                # the claimed official_url (already checked above) and the known
+                # source_id/profile_id -- never trusted as an arbitrary string the
+                # leader is free to choose. A leader could otherwise pick a
+                # canonical_id/digest disconnected from the real URL to either
+                # force a spurious "duplicate" suppression of a genuine new item,
+                # or dodge legitimate duplicate detection on a document already
+                # seen under its real identity.
+                own_canonical_id = _canonical_item_id(source_id, official_url)
+                own_digest = _profile_item_id(profile_id, own_canonical_id)
+                if item.get("canonical_id") != own_canonical_id:
+                    return False
+                if item.get("digest") != own_digest:
+                    return False
+
+                # 6. Independently re-classify this item from this validator's own
                 # fetch, and require the leader's claimed classification to be
                 # materially -- not just syntactically -- compatible with this
-                # independent judgment. document_type must match exactly (a
-                # PROPOSED_RULE is not a FINAL_RULE, regardless of "vibe"); the
-                # rest allow one rank step of reasonable subjective variance and
-                # no more, which rejects e.g. a fabricated CRITICAL/EMERGENCY_ACTION
-                # claim on a profile with no real connection to the document.
+                # independent judgment. Classification is grounded in
+                # own_page_text (this validator's own fetch), not in the leader's
+                # title/summary/URL claims, which are supplementary context only.
+                # document_type must match exactly (a PROPOSED_RULE is not a
+                # FINAL_RULE, regardless of "vibe"); the rest allow one rank step
+                # of reasonable subjective variance and no more, which rejects
+                # e.g. a fabricated CRITICAL/EMERGENCY_ACTION claim on a profile
+                # with no real connection to the document.
                 own_verdict = _classify_item(own_page_text, title, pub_date,
                                               verdict.get("document_type", "UNKNOWN"),
                                               official_url, summary)
@@ -1147,6 +1209,14 @@ Return ONLY this JSON:
         try:
             consensus_raw = gl.vm.run_nondet(leader_fn, validator_fn)
             consensus_payload = json.loads(consensus_raw)
+            if not consensus_payload.get("fetch_ok", True):
+                # Consensus was reached, but what was agreed on is that the
+                # source could not be fetched (non-2xx status, empty/malformed
+                # body, or a network-level exception -- see _fetch_page_text).
+                # That is a failed scan, not a clean "nothing new found" --
+                # folding it into NO_UPDATES would hide a retryable source
+                # outage behind the same status a legitimately quiet scan gets.
+                raise gl.vm.UserError("SOURCE_FETCH_FAILED")
             consensus_data = consensus_payload.get("items", [])
         except Exception as e:
             scan_rec.status = "FAILED"
@@ -1181,10 +1251,16 @@ Return ONLY this JSON:
         candidate_count = u32(len(consensus_data))
 
         for item in consensus_data:
-            digest = item.get("digest", "")  # profile-scoped identity: profile_id + canonical_item_id
-            canonical_id = item.get("canonical_id", "")
-            if canonical_id:
-                self.canonical_items[canonical_id] = True  # global "document discovered" bookkeeping
+            # Identity used for storage is always recomputed by the contract from
+            # the agreed official_url, never taken from the leader/consensus
+            # payload's own canonical_id/digest strings -- even though
+            # validator_fn already requires those to match this same computation,
+            # recomputing here means duplicate detection can never depend on an
+            # arbitrary leader-chosen identity value reaching storage at all.
+            official_url_for_identity = item.get("official_url", src.url)
+            canonical_id = _canonical_item_id(source_id, official_url_for_identity)
+            digest = _profile_item_id(profile_id, canonical_id)
+            self.canonical_items[canonical_id] = True  # global "document discovered" bookkeeping
             if digest in self.seen_profile_items:
                 dupe_count = u32(int(dupe_count) + 1)
                 continue
@@ -1410,10 +1486,29 @@ Return ONLY this JSON:
         })
 
         def _fetch_re_review_source():
+            # Same conservative status/body checking as the scan path's
+            # _fetch_page_text: only a genuine 2xx with a non-empty body counts as
+            # a successful re-fetch. Everything else (redirects, 4xx/5xx, empty or
+            # malformed bodies, network exceptions) is treated as unreachable, and
+            # the outcome-derivation logic below forces SOURCE_UNVERIFIABLE rather
+            # than allowing a reclassification grounded in nothing.
             try:
                 web_data = gl.nondet.web.request(a.official_url, method="GET")
-                raw = web_data.body if hasattr(web_data, 'body') else web_data
+                status = getattr(web_data, 'status', None)
+                if status is None:
+                    return "", False
+                try:
+                    status_int = int(status)
+                except Exception:
+                    return "", False
+                if status_int < 200 or status_int >= 300:
+                    return "", False
+                raw = getattr(web_data, 'body', None)
+                if raw is None:
+                    return "", False
                 text = raw.decode('utf-8', errors='replace') if isinstance(raw, (bytes, bytearray)) else str(raw)
+                if not text.strip():
+                    return "", False
                 return text[:4000], True
             except Exception:
                 return "", False
@@ -1528,7 +1623,9 @@ Allowed recommended_action: NO_ACTION, MONITOR, LEGAL_REVIEW, COMPLIANCE_REVIEW,
                 )
 
             quote = str(claimed.get("evidence_quote", ""))
-            if not quote or _normalize_text(quote) not in _normalize_text(own_excerpt):
+            if not quote or len(quote.split()) > 25:
+                return False
+            if _normalize_text(quote) not in _normalize_text(own_excerpt):
                 return False
 
             own_data = _re_classify(own_excerpt)

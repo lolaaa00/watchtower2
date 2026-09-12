@@ -5,6 +5,7 @@ import type {
   WatchProfile,
   ScanRecord,
   AlertRecord,
+  ReviewRecord,
   KeeperStatsRecord,
   ContractSummary,
 } from "../types";
@@ -56,6 +57,18 @@ export async function getAlert(client: WatchtowerClient, alertId: string): Promi
 
 export async function getScan(client: WatchtowerClient, scanId: string): Promise<ScanRecord> {
   return (await read(client, "get_scan", [scanId])) as ScanRecord;
+}
+
+export async function getReview(client: WatchtowerClient, reviewId: string): Promise<ReviewRecord> {
+  return (await read(client, "get_review", [reviewId])) as ReviewRecord;
+}
+
+export async function getSourceScanIds(client: WatchtowerClient, sourceId: string, offset: number, limit: number): Promise<string[]> {
+  try {
+    return (await read(client, "get_source_scan_ids_v2", [sourceId, String(offset), String(limit)])) as string[];
+  } catch {
+    return [];
+  }
 }
 
 export async function getKeeperScanIds(client: WatchtowerClient, keeper: string, offset: number, limit: number): Promise<string[]> {

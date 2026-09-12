@@ -29,7 +29,7 @@ The application combines a Next.js operations dashboard with a GenLayer Intellig
 | --- | --- |
 | Network | GenLayer StudioNet |
 | Chain ID | `61999` |
-| Contract | `0x133E154c0A4E89B8de701938cffa2E3dff759fc4` |
+| Contract | `0x36250004511C89BDc49eCfD4e87cd57EDcc43611` |
 | Explorer | [explorer-studio.genlayer.com](https://explorer-studio.genlayer.com) |
 | Live app | [watchtower2.vercel.app](https://watchtower2.vercel.app) |
 
@@ -54,7 +54,7 @@ npm install
 Create `.env.local`:
 
 ```env
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x133E154c0A4E89B8de701938cffa2E3dff759fc4
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x36250004511C89BDc49eCfD4e87cd57EDcc43611
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
 NEXT_PUBLIC_GENLAYER_EXPLORER_BASE_URL=https://explorer-studio.genlayer.com
@@ -90,6 +90,15 @@ Open [http://localhost:3000](http://localhost:3000).
 the source contains material that genuinely matches the selected profile — a scan finding zero new,
 relevant items is the expected outcome most of the time, confirmed repeatedly against the live CFPB
 Federal Register source during testing (`candidate_count: 0`, clean `NO_UPDATES`, no error).
+
+The Signal Sweep Chamber (`/scan`) reads back this scan-record status after the sweep transaction
+itself reaches `ACCEPTED`/`FINALIZED` — a `FAILED` scan (source unreachable, non-2xx status, or a
+malformed/empty response — see "Non-Manipulable Timestamps" and the consensus design above) is logged
+distinctly and flagged retryable, never shown identically to a legitimate `NO_UPDATES`. The Second
+Reading page (`/tribunal/[alertId]`) similarly reads back the specific re-review outcome
+(`SOURCE_UNVERIFIABLE`, `MORE_CONTEXT_REQUIRED`, `REVIEW_FAILED` are all shown as distinct,
+explicitly-retryable non-changes, never as a generic "casefile updated" message) instead of assuming
+every confirmed transaction changed something.
 
 ### Testing a Positive Result
 
@@ -226,25 +235,33 @@ and the app says so before treating it as acknowledged.
   exactly `Contract` makes the linter's `find_contract_class` skip it as the base-class re-export
   and report a false "no contract class found" — the class is named `WatchtowerContract` to avoid
   that.
-- `tests/direct/` — 74 direct-mode tests, **all passing** (verified by actually running them, not
+- `tests/direct/` — **96 direct-mode tests, all passing** (verified by actually running them, not
   claimed from memory):
   ```bash
   python3.12 -m venv .venv && source .venv/bin/activate
   pip install genlayer-test pytest
   pytest tests/direct/ -v
   ```
-  - `test_scan_validator.py` and `test_re_review_validator.py` (new) exercise the independent
-    `validator_fn` closures directly via `direct_vm.run_validator(leader_result=...)` — the
-    genlayer-test direct-mode harness runs the leader path for the contract call itself but captures
-    `validator_fn` for explicit invocation, since direct mode doesn't simulate full multi-node
-    consensus. These prove the validator rejects a fabricated URL/domain, a fabricated evidence
-    quote, a wrong publication date, a wrong document type, an unrelated CRITICAL/EMERGENCY_ACTION
-    escalation, and a claim of fetch success when the validator's own fetch fails — while still
-    agreeing on a genuinely independent match and tolerating harmless rank-adjacent differences.
-    Writing these tests caught a real bug in `_fetch_page_text`/`_fetch_re_review_source`: mocked
-    (and some live) web responses can return `bytes`, and the original code did not decode them
-    before running string operations like `.lower()`/`substring` checks in the validator, which
-    crashed with `TypeError`. Fixed by decoding to `str` before any text processing.
+  - `test_fetch_hardening.py` (new) proves `_fetch_page_text`/`_fetch_re_review_source` treat a 3xx
+    redirect, a 404/500/503, an empty body, a whitespace-only body, and a missing status field all as
+    a failed fetch — never as evidence a document exists — for both the scan and re-review paths, plus
+    a positive-path sanity check that a genuine 200-with-body still works.
+  - `test_scan_validator.py` and `test_re_review_validator.py` exercise the independent `validator_fn`
+    closures directly via `direct_vm.run_validator(leader_result=...)` — the genlayer-test direct-mode
+    harness runs the leader path for the contract call itself but captures `validator_fn` for explicit
+    invocation, since direct mode doesn't simulate full multi-node consensus. These prove the
+    validator rejects a fabricated URL/domain, a fabricated evidence quote, a quote over the 25-word
+    cap, an unrelated/mismatched title, a wrong publication date, a wrong document type, an unrelated
+    CRITICAL/EMERGENCY_ACTION escalation, a fabricated `canonical_id`, a fabricated profile `digest`
+    (including a "changed digest" duplicate-evasion attempt), and a claim of fetch success when the
+    validator's own fetch fails — while still agreeing on a genuinely independent match and tolerating
+    harmless rank-adjacent differences. Each file also has a `..._commits_nothing` test proving a
+    disagreeing validator call has zero storage side effects (the closest direct mode can prove,
+    since it doesn't enforce validator consensus on the write path itself — see the file's docstring).
+    Writing the identity/title checks caught a real bug in `_fetch_page_text`/`_fetch_re_review_source`:
+    mocked (and some live) web responses can return `bytes`, and the original code did not decode them
+    before running string operations in the validator, crashing with `TypeError`. Fixed by decoding to
+    `str` before any text processing.
   - `test_reviewer_findings.py` covers cross-profile duplicate independence, same-profile
     deduplication, non-manipulable timestamps (including a backward-clock-warp attempt against a
     stored cooldown), and re-review fetch-failure degradation.
@@ -264,20 +281,25 @@ and the app says so before treating it as acknowledged.
   - A prior phase's `gl.UserError` → `gl.vm.UserError` fix (every validation error in the contract
     was silently broken) and a `run_manual_scan` fix so manual overrides can actually bypass the
     schedule are documented in [`docs/DECISION_RECORD.md`](docs/DECISION_RECORD.md).
-- `tests/integration/test_studionet_smoke.py` — a real-consensus smoke test against StudioNet
-  (`gltest tests/integration/ -v -s --network studionet`) exists from a prior phase, but this
-  revision's changes were **not** re-verified against it: this environment has no network access to
-  StudioNet (confirmed directly — `npm run verify-schema` fails with `fetch failed` against the
-  configured RPC endpoint), and live consensus rounds additionally require a funded keystore this
-  environment does not have credentials for. The direct-mode suite above is the verified coverage
-  for this revision; StudioNet verification of the new validator logic is a real gap that a human
-  running `gltest tests/integration/ -v -s --network studionet` with network access should close
-  before treating this as fully proven end-to-end.
+- `tests/integration/test_deploy_and_verify_fix.py` — **run and passed live against StudioNet**
+  (`gltest tests/integration/test_deploy_and_verify_fix.py -v -s --network studionet`). Deploys this
+  exact reviewed commit fresh, then exercises `register_source_v2`/`create_watch_profile` (both
+  `FINALIZED`), canonical `get_contract_summary`/`get_source`/`get_profile` reads, and a real
+  `run_source_scan` through the actual `leader_fn`/`validator_fn` `gl.vm.run_nondet` consensus path —
+  live LLM/web calls, not mocks — which reached `ACCEPTED` and recorded a clean `NO_UPDATES` scan.
+  Exact transaction hashes are in [`docs/LAST_STUDIONET_DEPLOY.txt`](docs/LAST_STUDIONET_DEPLOY.txt).
+  `tests/integration/test_studionet_smoke.py` (a lighter smoke test against whatever address is
+  currently in `.env.local`) was also fixed this pass — it previously referenced
+  `gl_alice`/`gl_bob`/`gl_contract_address` fixtures that don't exist in the installed
+  `genlayer-test` 0.29.2 and failed before ever reaching the network.
 - `gltest.config.yaml` sets `networks.default: studionet` so `gltest` never silently targets
   localnet.
-- `npm run lint`, `npm run build` (Next.js typecheck + production build) — both pass clean against
-  this revision; no frontend files were changed since only internal contract logic and one new view
-  method (`get_review`) were added, and the frontend does not call it.
+- `npm run lint`, `npm run build` — both pass clean, including the frontend changes this pass made to
+  surface `SOURCE_UNVERIFIABLE`/`REVIEW_FAILED`/`MORE_CONTEXT_REQUIRED` re-review outcomes and
+  `FAILED` scan results explicitly (see "Identity and Duplicate Handling" / re-review sections above
+  and `docs/DECISION_RECORD.md` for the exact UI change).
+- `npm run verify-schema` — **passes, 24/24 call sites**, against the freshly deployed
+  `0x36250004511C89BDc49eCfD4e87cd57EDcc43611` (see StudioNet Deployment table above).
 
 ## Decision Record
 
@@ -296,18 +318,24 @@ All write methods that touch cooldown/expiry state now derive `now_ts` from
 — see `_now_ts()` in `contracts/watchtower.py` and [`docs/DECISION_RECORD.md`](docs/DECISION_RECORD.md).
 A caller can no longer skew cooldown/due-date gating by lying about the time.
 
-The address above (`0x133E154c0A4E89B8de701938cffa2E3dff759fc4`) includes three fixes found while
-getting the direct test suite and linter running for the first time — a contract-wide `gl.UserError`
-→ `gl.vm.UserError` fix (every validation error was silently broken on the previous deployment,
+An earlier deployment (`0x133E154c0A4E89B8de701938cffa2E3dff759fc4`, now superseded) included three
+fixes found while getting the direct test suite and linter running for the first time — a
+contract-wide `gl.UserError` → `gl.vm.UserError` fix (every validation error was silently broken,
 crashing with an unrelated `AttributeError` instead of the intended revert message), a
 `run_source_scan` signature change (`skip_due_check`/`trigger_type` params so `run_manual_scan` can
 actually bypass the schedule instead of just adding a mandatory reason field), and a class rename
 (`Contract` → `WatchtowerContract`, cosmetic only — `genvm-lint`'s `find_contract_class` otherwise
-skips a class literally named `Contract`, assuming it's the SDK's own base-class re-export). All
-three were verified live on this deployment: `register_source_v2`, `create_watch_profile`, a
-`run_source_scan` that reached `ACCEPTED`, and a `run_manual_scan` that correctly hit
-`SOURCE_COOLDOWN` (not `SOURCE_NOT_DUE`) when triggered ahead of schedule — direct proof the bypass
-works, since without the fix that call would revert `SOURCE_NOT_DUE` regardless of cooldown state.
+skips a class literally named `Contract`, assuming it's the SDK's own base-class re-export).
+
+The current address above (`0x36250004511C89BDc49eCfD4e87cd57EDcc43611`) is a fresh deployment of
+this exact reviewed commit — not a reused older deployment — verified live end-to-end via
+`tests/integration/test_deploy_and_verify_fix.py`: `register_source_v2` and `create_watch_profile`
+both reached `FINALIZED`, canonical `get_source`/`get_profile`/`get_contract_summary` reads confirmed
+the written state, and a real `run_source_scan` (the actual `leader_fn`/`validator_fn` `gl.vm.run_nondet`
+consensus path, not a mock) reached `ACCEPTED` and recorded a clean `NO_UPDATES` scan
+(0 candidates from the CFPB Federal Register API at the time of this run). `npm run verify-schema`
+was also re-run against this exact address and passed all 24 frontend call sites. Exact transaction
+hashes are in [`docs/LAST_STUDIONET_DEPLOY.txt`](docs/LAST_STUDIONET_DEPLOY.txt).
 
 ## Honest Limits
 

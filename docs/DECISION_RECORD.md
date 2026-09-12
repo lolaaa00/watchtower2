@@ -387,3 +387,178 @@ README, or add new user-facing features. The scope was the trust model — indep
 verification, profile-scoped identity, non-manipulable timestamps (already correct from the prior
 phase, re-audited here and found still correct across every write method), and re-review outcome
 integrity — not new functionality.
+
+## Third pass: HTTP hardening, identity recomputation, and closing the "review without proof" gap
+
+A follow-up request asked for direct verification (not reliance on the README or prior test
+summaries) plus five specific hardening items the previous pass had not fully closed. Each is
+addressed below with the exact code location and the test that proves it.
+
+**1. Source fetching now inspects HTTP status, not just presence of a body.** Before this pass,
+`_fetch_page_text` and `_fetch_re_review_source` treated *any* non-exception `gl.nondet.web.request`
+result as a successful fetch — including a 404, a 500, a 3xx redirect, or an empty body, as long as
+`.body` existed. A mocked 500 response with no body previously "succeeded" as fetch_ok=True with
+empty text, which only failed downstream because no LLM mock matched the resulting empty-page
+extraction prompt — an accident of test setup, not a real guarantee. Both functions now check
+`response.status` is in `[200, 300)` and that the decoded body is non-empty after stripping
+whitespace; anything else (3xx/4xx/5xx, missing status, `None`/empty/whitespace-only body, or an
+exception) returns `fetch_ok=False`. See `_fetch_page_text` and `_fetch_re_review_source` in
+`contracts/watchtower.py`. A consensus-confirmed fetch failure during a scan is now recorded as scan
+status `FAILED` (previously it could reach `NO_UPDATES` — see item below), and during a re-review it
+still resolves to `SOURCE_UNVERIFIABLE` without mutating the alert. Tested exhaustively in the new
+`tests/direct/test_fetch_hardening.py` (301/302/404/500/503 status, empty body, whitespace-only body,
+missing status field, and a positive-path sanity check, for both the scan and re-review fetch paths).
+
+**2. A confirmed source-fetch failure is now its own `FAILED` scan status, not folded into
+`NO_UPDATES`.** Once HTTP status checking was added, a scan whose leader and validator both
+correctly agree the source is unreachable (`fetch_ok: False`, real consensus, not an exception) fell
+through to the same code path as a legitimate "scanned successfully, found 0 candidates" result —
+both produced `NO_UPDATES` with `alert_count: 0`. That conflates "the source is currently broken or
+unreachable, retry later" with "the source was read fine and genuinely has nothing new," which the
+frontend and an operator need to distinguish (a `NO_UPDATES` streak might just mean a dead source).
+Fixed by raising `gl.vm.UserError("SOURCE_FETCH_FAILED")` when the agreed consensus payload's
+`fetch_ok` is `False`, routing it through the exact same handling as any other consensus exception:
+scan status `FAILED`, `error_code` set, source stats/cooldown still updated, no alert created. Tested
+via the parametrized status tests in `test_fetch_hardening.py` and the pre-existing
+`test_run_source_scan_fetch_failure_never_creates_alert` in `test_scans.py` (updated to actually
+exercise this path now that status checking makes the mock's intent — "the source is down" —
+observable).
+
+**3. Evidence identity (`canonical_id`/`digest`) is now recomputed by the validator AND by the
+contract's own storage-write code — never trusted from the leader's payload.** The previous pass's
+`validator_fn` re-classified each item independently but never checked the `canonical_id`/`digest`
+fields the leader attached to each item; the post-consensus storage loop then wrote whatever the
+leader claimed directly into `canonical_items`/`seen_profile_items`. A leader could pick an arbitrary
+digest for a real document (dodging legitimate duplicate detection) or collide a genuinely new
+document's identity with an existing one (suppressing it as a false "duplicate"). Fixed at two
+independent layers: `validator_fn` now recomputes `_canonical_item_id(source_id, official_url)` and
+`_profile_item_id(profile_id, canonical_id)` itself and requires the leader's claimed values to match
+exactly (rejecting otherwise); separately, the post-consensus write loop in `_run_scan_core` no
+longer reads `item.get("canonical_id")`/`item.get("digest")` at all — it recomputes both directly
+from the agreed `official_url` every time, so storage identity can never depend on an arbitrary
+leader-chosen string even if a future change weakened the validator check. Tested in
+`test_scan_validator.py`: `test_validator_rejects_fabricated_canonical_id`,
+`test_validator_rejects_fabricated_profile_digest`, and
+`test_duplicate_attempt_using_a_changed_digest_is_rejected` (a leader disguising a real, previously
+alerted document with a fresh fabricated digest, hoping to dodge dedup, is still rejected).
+
+**4. Item verification is now stricter and covers title, not just quote/URL/date.** `evidence_quote`
+is now explicitly capped at 25 words in code (previously enforced only by prompt instruction, not
+checked) in both the scan and re-review validators — `test_validator_rejects_evidence_quote_longer_than_25_words`
+in both `test_scan_validator.py` and `test_re_review_validator.py`. The scan validator also now checks
+the claimed `title` against the validator's own independently-fetched page: since a real title is
+usually a paraphrase of page wording (word order rearranged, articles dropped) rather than a literal
+substring, this uses a word-overlap check (≥60% of the title's own significant words must appear
+somewhere in the independently-fetched text) rather than requiring a literal substring match, which
+the more literal `evidence_quote` check already covers. `test_validator_rejects_valid_quote_with_mismatched_title`
+proves a genuinely real, verbatim quote does not excuse an unrelated title; `test_validator_rejects_valid_quote_with_mismatched_url`
+proves the same for a mismatched URL. Classification itself was already grounded in the validator's
+own independently-fetched `own_page_text` before this pass (never solely in leader-supplied title/
+summary fields) — confirmed by reading `_classify_item`'s call sites, not changed in this pass.
+
+**5. Validator disagreement / failed verification never commits state.** Direct-mode's test harness
+(`genlayer-test`) always executes the leader's own result for the actual contract call and separately
+*captures* `validator_fn` for manual invocation via `direct_vm.run_validator()` — it does not enforce
+validator consensus on the write path itself, since it isn't simulating a real multi-node network.
+That means this harness cannot literally prove "a real disagreeing validator blocks the transaction
+from committing" the way live StudioNet consensus does. What it can and does prove directly:
+invoking the captured `validator_fn` against a fabricated leader result has zero storage side effects
+of its own — state before and after a disagreeing `run_validator()` call is exactly identical (no new
+alert, no identity entry, no counter change). See `test_validator_disagreement_commits_nothing` in
+`test_scan_validator.py` and `test_validator_disagreement_commits_no_re_review_mutation` in
+`test_re_review_validator.py`. The live-consensus proof (a genuinely disagreeing quorum actually
+reverting a transaction) can only come from StudioNet itself — see the live verification below, which
+did exercise the real leader_fn/validator_fn path end-to-end on-chain, just not under an adversarial
+leader (StudioNet's own honest-majority validators ran the real, non-adversarial code).
+
+### Frontend: failed/unverifiable/retryable outcomes are now surfaced, not hidden behind a generic message
+
+Two real UI gaps were found by reading the actual rendered code (not assumed from the README):
+
+- `app/tribunal/[alertId]/page.tsx` showed the identical generic message — "Second reading complete.
+  Impact casefile updated through consensus lens." — regardless of the review's actual `outcome`,
+  including `SOURCE_UNVERIFIABLE`, `REVIEW_FAILED`, and `MORE_CONTEXT_REQUIRED`, none of which change
+  anything. A user submitting a challenge against an unreachable source would be told their casefile
+  was "updated" when nothing had happened. Fixed: the page now looks up the specific `ReviewRecord`
+  produced by the submission (via a new `get_review` contract view method and `getReview` read
+  wrapper) and renders outcome-specific copy with distinct color-coded severity (green for a genuine
+  decision reached, amber for `SOURCE_UNVERIFIABLE`/`MORE_CONTEXT_REQUIRED` — explicitly labeled
+  retryable, red for `REVIEW_FAILED` — a technical failure, also explicitly retryable).
+- `app/scan/page.tsx` only ever logged the *transaction* lifecycle status (`ACCEPTED`/`FINALIZED`/
+  `UNDETERMINED`) after a sweep, never the resulting *scan record*'s own status. Since consensus being
+  `ACCEPTED` says nothing about whether the agreed-on result was a real find, a clean "nothing new,"
+  or (after item 2 above) a failed source fetch, an operator watching the log would see "sweep
+  accepted" identically whether the source was healthy or broken. Fixed: after `ACCEPTED`/
+  `FINALIZED`, the page now reads back the actual scan record (`get_source_scan_ids_v2` + `get_scan`,
+  wrapped as `getSourceScanIds` in `lib/genlayer/reads.ts`) and logs its real `status` — `FAILED`
+  results are marked explicitly retryable, `NO_UPDATES` and `COMPLETED` show their real candidate/
+  alert/duplicate counts.
+- Existing transaction-lifecycle finality handling (`pollTransactionLifecycle`, `UNDETERMINED`/
+  timeout retry prompts, `TxHashRibbon` confirmation display) was left untouched, per the explicit
+  instruction to keep finality/canonical-readback behavior intact — both additions above are purely
+  additive canonical reads layered on top of the existing flow, not a replacement of it.
+
+### Live StudioNet verification (this was actually run, not skipped)
+
+An earlier assumption in this project's history — that this environment has no network access to
+StudioNet — turned out to be **wrong** when actually tested this pass; `gltest --network studionet`
+does reach `https://studio.genlayer.com/api` from here. Rather than continuing to assert "cannot
+verify live," this pass corrected course and used that access:
+
+- The previously-deployed contract address (`0x133E154c0A4E89B8de701938cffa2E3dff759fc4`) predates
+  this entire remediation effort — verifying against it would have proven nothing about the code
+  actually reviewed here. `tests/integration/test_deploy_and_verify_fix.py` was written (replacing
+  two broken placeholder fixtures — `gl_alice`/`gl_bob`/`gl_contract_address` — that don't exist in
+  the installed `genlayer-test` 0.29.2, which meant the pre-existing `test_studionet_smoke.py`
+  couldn't even reach the network before this pass; it's since been fixed to use the real
+  `accounts`/`gl_client` fixtures instead) to deploy the **exact commit under review** fresh, then
+  exercise `register_source_v2` (FINALIZED), `create_watch_profile` (FINALIZED), canonical
+  `get_contract_summary`/`get_source`/`get_profile` reads confirming the written state, and a real
+  `run_source_scan` — the actual `leader_fn`/`validator_fn` `gl.vm.run_nondet` consensus path, live
+  LLM and web calls, not mocks — which reached `ACCEPTED` and recorded a genuine `NO_UPDATES` scan (0
+  candidates from the live CFPB Federal Register API at the time of the run; a legitimate outcome per
+  this project's own prior live-testing history, not a bug).
+- `.env.local` and the README's deployment table were updated to this new address
+  (`0x36250004511C89BDc49eCfD4e87cd57EDcc43611`) so the documented/configured deployment actually
+  matches the reviewed commit, rather than silently leaving the frontend pointed at stale code.
+  `npm run verify-schema` was then re-run against this exact address and passed all 24 frontend call
+  sites (it had previously failed with a network error before this pass established access works).
+- Exact transaction hashes: deploy `0xfc795b1255b6674b8e283ef094b2493ada8a4a87753fcb4bd9690171a8df1c30`,
+  `register_source_v2` `0x9359fe032da447b8360c7763213f8601533287bc11854ce0add0931010f1dd61`
+  (FINALIZED), `create_watch_profile` `0xa39376575ac53e88b62945942f5d1674b9e3feedd6cebd10142e9b9a1703a0eb`
+  (FINALIZED), `run_source_scan` `0xe358852df2b5fcea12012af86421a6ff29517d2a8a63cce53ec2572c7a5b6875`
+  (ACCEPTED; scan record `SCN-000001`, status `NO_UPDATES`, 0 candidates/0 alerts/0 duplicates). Also
+  recorded in [`LAST_STUDIONET_DEPLOY.txt`](LAST_STUDIONET_DEPLOY.txt).
+- **Honest limit, unchanged by this discovery**: this run exercised StudioNet's own honest-majority
+  validator set running the real, non-adversarial `leader_fn`/`validator_fn` code — it is a genuine
+  end-to-end proof that the reviewed contract deploys and runs correctly under real consensus, but it
+  is not a proof that a real dishonest/adversarial leader on StudioNet gets caught (that would require
+  controlling a validator node's behavior, which this environment cannot do). The direct-mode
+  validator-disagreement tests (item 5 above) remain the actual proof of the adversarial-rejection
+  logic; this live run proves the honest path deploys and functions.
+
+### Verification actually run for this pass (exact numbers, not summarized from memory)
+
+- `python3 -c "import ast; ast.parse(...)"` — syntax OK.
+- `pytest tests/direct/ -v` — **96/96 passed** (up from 74; added `test_fetch_hardening.py` with 13
+  tests and expanded `test_scan_validator.py`/`test_re_review_validator.py` with the new identity,
+  quote-length, title/URL, and disagreement-commits-nothing tests).
+- `genvm-lint check contracts/watchtower.py --json` — 2/3 checks pass (the `W004` bare-exception
+  warning from an earlier draft of the `SOURCE_FETCH_FAILED` fix was found and corrected to
+  `gl.vm.UserError` before finishing); the same `E010` warnings as the prior pass remain (linter gap
+  re: `run_nondet` reachability, not a real defect — see prior section) and `E101` schema-load
+  failure persists in the default cache. `genvm-lint download -v v0.2.16` was attempted in the
+  background this pass, now that network access is confirmed, to see whether the specific missing
+  runner tarball (`1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6`) could be fetched, since that
+  exact hash is the one bundled with `genlayer-test`'s own `v0.2.16` direct-mode runtime — but it had
+  not completed by the time this pass finished, and is reported here as **attempted, inconclusive**,
+  not as resolved. This does not affect contract correctness: `E101` is a schema-extraction failure in
+  the linter tool's own SDK loading, separate from the 96/96 passing behavioral tests and the live
+  StudioNet deployment + `verify-schema` pass below, both of which independently confirm the ABI and
+  contract logic are correct without needing this specific tool to succeed.
+- `npm run lint` — clean.
+- `npm run build` — clean (Next.js typecheck + production build, including the frontend changes
+  described above).
+- `npm run verify-schema` — **passes**, 24/24 call sites, against the freshly deployed
+  `0x36250004511C89BDc49eCfD4e87cd57EDcc43611`.
+- StudioNet integration — **run and passed**, see above.

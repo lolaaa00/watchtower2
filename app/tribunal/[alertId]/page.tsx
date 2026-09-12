@@ -3,10 +3,31 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useWallet } from "@/lib/hooks/useWallet";
-import { getAlert } from "@/lib/genlayer/reads";
+import { getAlert, getContractSummary, getReview } from "@/lib/genlayer/reads";
 import { requestReReview } from "@/lib/genlayer/writes";
 import { waitForTx } from "@/lib/genlayer/tx";
-import type { AlertRecord, TxState } from "@/lib/types";
+import type { AlertRecord, ReviewRecord, TxState } from "@/lib/types";
+
+const OUTCOME_COPY: Record<string, { text: string; tone: "ok" | "warn" | "fail" }> = {
+  UPHELD: { text: "Original classification independently re-verified and upheld — no change.", tone: "ok" },
+  RECLASSIFIED: { text: "Second reading reclassified this finding. Casefile updated through consensus lens.", tone: "ok" },
+  URGENCY_RAISED: { text: "Second reading raised the urgency rating. Casefile updated.", tone: "ok" },
+  URGENCY_REDUCED: { text: "Second reading reduced the urgency rating. Casefile updated.", tone: "ok" },
+  MATERIALITY_RAISED: { text: "Second reading raised the materiality rating. Casefile updated.", tone: "ok" },
+  MATERIALITY_REDUCED: { text: "Second reading reduced the materiality rating. Casefile updated.", tone: "ok" },
+  MORE_CONTEXT_REQUIRED: {
+    text: "The re-fetched source did not provide enough evidence to responsibly reclassify. The original classification is unchanged. You may retry once more context is available.",
+    tone: "warn",
+  },
+  SOURCE_UNVERIFIABLE: {
+    text: "The source could not be independently re-verified (fetch failed or returned no usable content). The original classification is unchanged. This is retryable — try again once the source is reachable.",
+    tone: "warn",
+  },
+  REVIEW_FAILED: {
+    text: "A technical failure occurred during independent verification — no decision was reached, and nothing was changed. This is retryable.",
+    tone: "fail",
+  },
+};
 import { RE_REVIEW_REASONS } from "@/lib/constants/enums";
 import VerdictSeal from "@/components/shared/VerdictSeal";
 import TxHashRibbon from "@/components/shared/TxHashRibbon";
@@ -19,6 +40,8 @@ export default function SecondReadingCasePage() {
   const [reason, setReason] = useState(RE_REVIEW_REASONS[0]);
   const [note, setNote] = useState("");
   const [tx, setTx] = useState<TxState>({ status: "idle" });
+  const [review, setReview] = useState<ReviewRecord | null>(null);
+  const [reviewLoadFailed, setReviewLoadFailed] = useState(false);
 
   useEffect(() => {
     if (!client || !alertId) return;
@@ -27,13 +50,28 @@ export default function SecondReadingCasePage() {
 
   const submit = async () => {
     if (!client || !alertId || note.length < 10) return;
+    setReview(null);
+    setReviewLoadFailed(false);
     try {
+      // Capture the review counter before submitting so the specific review
+      // record this submission produces can be looked up afterward -- the
+      // write's own tx status only proves consensus was reached at all, not
+      // what business-level outcome (UPHELD vs SOURCE_UNVERIFIABLE vs
+      // REVIEW_FAILED, etc.) it actually resolved to.
+      const before = await getContractSummary(client);
       setTx({ status: "prompting" });
       const hash = await requestReReview(client, alertId, reason, note);
       setTx({ status: "submitted", hash: hash as string });
       await waitForTx(client, hash as `0x${string}`);
       setTx({ status: "confirmed", hash: hash as string });
       getAlert(client, alertId).then(setAlert).catch(() => {});
+      const reviewId = `REV-${String(before.total_reviews + 1).padStart(6, "0")}`;
+      try {
+        const rec = await getReview(client, reviewId);
+        setReview(rec);
+      } catch {
+        setReviewLoadFailed(true);
+      }
     } catch (e: any) { setTx({ status: "failed", error: e.message }); }
   };
 
@@ -78,8 +116,33 @@ export default function SecondReadingCasePage() {
 
         <div className="obs-inset p-4">
           <p className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-3" style={{ fontFamily: "var(--font-heading)", color: "var(--consensus-uv)" }}>Reading Outcome</p>
-          {tx.status === "confirmed" ? (
-            <p className="text-[17px]" style={{ color: "var(--exposure-green)" }}>Second reading complete. Impact casefile updated through consensus lens.</p>
+          {tx.status === "confirmed" && review ? (
+            <div>
+              <p
+                className="text-[12.5px] font-bold uppercase tracking-[0.1em] mb-1"
+                style={{
+                  fontFamily: "var(--font-heading)",
+                  color:
+                    OUTCOME_COPY[review.outcome]?.tone === "fail"
+                      ? "var(--pressure-red)"
+                      : OUTCOME_COPY[review.outcome]?.tone === "warn"
+                      ? "var(--seismic-amber)"
+                      : "var(--exposure-green)",
+                }}
+              >
+                {review.outcome.replace(/_/g, " ")}
+              </p>
+              <p className="text-[16px]" style={{ color: "var(--signal-bone)" }}>
+                {OUTCOME_COPY[review.outcome]?.text ?? review.outcome}
+              </p>
+            </div>
+          ) : tx.status === "confirmed" && reviewLoadFailed ? (
+            <p className="text-[16px]" style={{ color: "var(--seismic-amber)" }}>
+              Consensus was reached, but the resulting outcome could not be read back from chain. Reload
+              this page to check whether the classification changed.
+            </p>
+          ) : tx.status === "confirmed" ? (
+            <p className="text-[16px]" style={{ color: "var(--muted-instrument)" }}>Reading resulting outcome…</p>
           ) : (
             <p className="text-[16px]" style={{ color: "var(--muted-instrument)" }}>Submit a challenge basis to trigger GenLayer validator re-evaluation.</p>
           )}

@@ -84,6 +84,20 @@ export interface AlertRecord {
   last_reviewed_at: number;
 }
 
+export interface ReviewRecord {
+  review_id: string;
+  alert_id: string;
+  profile_id: string;
+  requester: string;
+  reason_code: string;
+  challenge_note: string;
+  original_verdict: string;
+  new_verdict: string;
+  outcome: string;
+  created_at: number;
+  completed_at: number;
+}
+
 export interface KeeperStatsRecord {
   keeper: string;
   scans_triggered: number;

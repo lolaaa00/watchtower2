@@ -253,3 +253,37 @@ def test_last_reviewed_at_only_changes_on_a_valid_completed_review(watchtower, d
     ))
     _do_re_review(watchtower, direct_vm, direct_bob, alert_id, reason_code="URGENCY_TOO_LOW", at=7000)
     assert watchtower.get_alert(alert_id)["last_reviewed_at"] == 7000
+
+
+def test_validator_rejects_evidence_quote_longer_than_25_words(watchtower, direct_vm, direct_bob, registered_source, watch_profile):
+    alert_id = _seed_alert(watchtower, direct_vm, direct_bob, registered_source, watch_profile)
+    direct_vm.mock_llm(r".*re-reviewing a regulatory alert.*", json.dumps(_re_review_judgment()))
+    _do_re_review(watchtower, direct_vm, direct_bob, alert_id)
+
+    long_quote = " ".join(["word"] * 26)
+    fabricated = json.dumps(_re_review_judgment(evidence_quote=long_quote, fetch_ok=True))
+    assert direct_vm.run_validator(leader_result=fabricated) is False
+
+
+def test_validator_disagreement_commits_no_re_review_mutation(watchtower, direct_vm, direct_bob, registered_source, watch_profile):
+    """Same proof as test_scan_validator.py's version for request_re_review:
+    running the captured validator_fn against a fabricated leader_result has
+    no storage side effects of its own -- the alert and review record set are
+    exactly as they were before the (disagreeing) validator call."""
+    alert_id = _seed_alert(watchtower, direct_vm, direct_bob, registered_source, watch_profile)
+    direct_vm.mock_llm(r".*re-reviewing a regulatory alert.*", json.dumps(_re_review_judgment()))
+    _do_re_review(watchtower, direct_vm, direct_bob, alert_id)  # one real UPHELD review exists
+
+    before_alert = watchtower.get_alert(alert_id)
+    before_review = watchtower.get_review("REV-000001")
+    before_summary = watchtower.get_contract_summary()
+
+    fabricated = json.dumps(_re_review_judgment(
+        urgency="EMERGENCY_ACTION", materiality="HIGHLY_MATERIAL",
+        evidence_quote="a fabricated sentence never present in the real source", fetch_ok=True,
+    ))
+    assert direct_vm.run_validator(leader_result=fabricated) is False
+
+    assert watchtower.get_alert(alert_id) == before_alert
+    assert watchtower.get_review("REV-000001") == before_review
+    assert watchtower.get_contract_summary() == before_summary

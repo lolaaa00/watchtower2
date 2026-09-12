@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/hooks/useWallet";
 import { useActiveProfile } from "@/lib/hooks/useActiveProfile";
-import { getDueSources, getSources, getKeeperScanIds, getScan } from "@/lib/genlayer/reads";
+import { getDueSources, getSources, getKeeperScanIds, getScan, getSourceScanIds } from "@/lib/genlayer/reads";
 import { runSourceScan, runSourceScanBonded, runManualScan, claimBond, challengeScan, KEEPER_BOND_WEI } from "@/lib/genlayer/writes";
 import { pollTransactionLifecycle } from "@/lib/genlayer/tx";
 import type { SourceRecord, ScanRecord, TxState, TxStatus } from "@/lib/types";
@@ -88,6 +88,26 @@ export default function SignalSweepPage() {
         setRetrySid(sid);
       } else if (result.status === "FINALIZED" || result.status === "ACCEPTED") {
         setLog((l) => [...l, `${sid} → sweep ${result.status === "FINALIZED" ? "finalized" : "accepted (still appealable)"}`]);
+        // Consensus being ACCEPTED/FINALIZED only means validators agreed on a
+        // result -- it says nothing about whether that result was a real find,
+        // a clean "nothing new," or a failed source fetch. Read the actual scan
+        // record back so FAILED (retryable -- source unreachable/malformed) is
+        // never shown identically to a legitimate NO_UPDATES.
+        try {
+          const scanIds = await getSourceScanIds(client, sid, 0, 50);
+          const latestScanId = scanIds[scanIds.length - 1];
+          if (latestScanId) {
+            const scanRecord = await getScan(client, latestScanId);
+            if (scanRecord.status === "FAILED") {
+              setLog((l) => [...l, `${sid} → ${latestScanId} FAILED: ${scanRecord.error_code || "source could not be independently verified"} — no alert was created. Retryable.`]);
+              setRetrySid(sid);
+            } else if (scanRecord.status === "NO_UPDATES") {
+              setLog((l) => [...l, `${sid} → ${latestScanId} NO_UPDATES: ${scanRecord.candidate_count} candidate(s), ${scanRecord.duplicate_count} duplicate(s), 0 new alerts.`]);
+            } else if (scanRecord.status === "COMPLETED") {
+              setLog((l) => [...l, `${sid} → ${latestScanId} COMPLETED: ${scanRecord.alert_count} new alert(s) from ${scanRecord.candidate_count} candidate(s).`]);
+            }
+          }
+        } catch { /* canonical scan-record read is best-effort for this log line */ }
         getDueSources(client, Math.floor(Date.now() / 1000)).then(setDueSources).catch(() => {});
         if (bonded) refreshBonds();
       }
